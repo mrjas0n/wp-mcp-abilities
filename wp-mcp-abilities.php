@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP MCP Abilities
  * Description: Registers content-management abilities (posts, comments, media and WooCommerce variable products) exposed through the MCP Adapter default server.
- * Version:     1.5.0
+ * Version:     1.5.2
  * Requires at least: 6.9
  * Requires PHP: 7.4
  * Requires Plugins: mcp-adapter
@@ -1509,120 +1509,22 @@ add_action( 'wp_abilities_api_init', function () {
 	);
 
 	wp_register_ability(
-		'elementor-design/add-html-hero',
-		array(
-			'label'       => 'Add Handmade HTML Hero (Free)',
-			'description' => 'Inserts a warm handmade-style hero at the top of an Elementor page using a free HTML widget (no Pro required). Backs up existing data.',
-			'category'    => 'elementor-design',
-			'input_schema' => array(
-				'type'                 => 'object',
-				'properties'           => array(
-					'post_id'               => array( 'type' => 'integer', 'description' => 'Target page ID (defaults to front page).' ),
-					'title'                 => array( 'type' => 'string', 'description' => 'Hero heading' ),
-					'subtitle'              => array( 'type' => 'string', 'description' => 'Hero subtitle' ),
-					'cta_text'              => array( 'type' => 'string', 'description' => 'Button text' ),
-					'cta_url'               => array( 'type' => 'string', 'description' => 'Button URL' ),
-					'image_attachment_id'   => array( 'type' => 'integer', 'description' => 'Optional image ID for inline <img>' ),
-				),
-				'required'             => array( 'title' ),
-				'additionalProperties' => false,
-			),
-			'output_schema' => array(
-				'type'       => 'object',
-				'properties' => array(
-					'post_id'    => array( 'type' => 'integer' ),
-					'permalink'  => array( 'type' => 'string' ),
-					'backup_key' => array( 'type' => 'string' ),
-				),
-			),
-			'execute_callback'    => function ( $input ) {
-				$post_id = ! empty( $input['post_id'] ) ? (int) $input['post_id'] : (int) get_option( 'page_on_front' );
-				if ( ! $post_id || ! get_post( $post_id ) ) {
-					return new WP_Error( 'ning_mcp_not_found', 'Target page not found.' );
-				}
-				$raw  = get_post_meta( $post_id, '_elementor_data', true );
-				$data = $raw ? json_decode( $raw, true ) : array();
-				if ( ! is_array( $data ) ) {
-					$data = array();
-				}
-				$backup_key = '_elementor_data_backup_' . gmdate( 'YmdHis' );
-				if ( $raw ) {
-					update_post_meta( $post_id, $backup_key, $raw );
-				}
-				$uid = function ( $p ) {
-					return $p . substr( md5( uniqid( (string) mt_rand(), true ) ), 0, 7 );
-				};
-				$title    = isset( $input['title'] ) ? $input['title'] : 'Handmade with Love';
-				$subtitle = isset( $input['subtitle'] ) ? $input['subtitle'] : 'Warm crochet for everyday cozy';
-				$cta_text = isset( $input['cta_text'] ) ? $input['cta_text'] : 'Shop New In';
-				$cta_url  = isset( $input['cta_url'] ) ? $input['cta_url'] : home_url( '/shop/' );
-				$img_html = '';
-				if ( ! empty( $input['image_attachment_id'] ) ) {
-					$url = wp_get_attachment_url( (int) $input['image_attachment_id'] );
-					if ( $url ) {
-						$img_html = '<img src="' . esc_url( $url ) . '" alt="" style="max-width:100%;height:auto;border-radius:16px;margin-top:16px;" />';
-					}
-				}
-				$html = '<div style="background:#FDF6EE;border-radius:24px;padding:80px 24px;text-align:center;max-width:1280px;margin:0 auto;">'
-					. '<h1 style="font-family:Caveat, cursive; font-size:48px; color:#5B4A3F; margin:0 0 16px;">' . esc_html( $title ) . '</h1>'
-					. '<p style="color:#8B7355; font-size:18px; margin:0 0 24px;">' . esc_html( $subtitle ) . '</p>'
-					. '<a href="' . esc_url( $cta_url ) . '" style="display:inline-block; background:#A67C52; color:#fff; border-radius:999px; padding:16px 32px; text-decoration:none; font-weight:600;">' . esc_html( $cta_text ) . '</a>'
-					. $img_html . '</div>';
-				$hero = array(
-					'id'       => $uid( 'hero' ),
-					'elType'   => 'container',
-					'settings' => array(
-						'content_width' => 'boxed',
-						'boxed_width'   => array( 'unit' => 'px', 'size' => 1280, 'sizes' => array() ),
-						'padding'       => array( 'unit' => 'px', 'top' => '0', 'right' => '0', 'bottom' => '0', 'left' => '0', 'isLinked' => false ),
-						'gap'           => array( 'unit' => 'px', 'size' => '0', 'sizes' => array() ),
-					),
-					'elements' => array(
-						array(
-							'id'         => $uid( 'html' ),
-							'elType'     => 'widget',
-							'widgetType' => 'html',
-							'settings'   => array( 'html' => $html ),
-							'elements'   => array(),
-							'isInner'    => false,
-							'isLocked'   => false,
-						),
-					),
-					'isInner'  => false,
-					'isLocked' => false,
-				);
-				array_unshift( $data, $hero );
-				update_post_meta( $post_id, '_elementor_data', wp_slash( wp_json_encode( $data ) ) );
-				if ( ! get_post_meta( $post_id, '_elementor_edit_mode', true ) ) {
-					update_post_meta( $post_id, '_elementor_edit_mode', 'builder' );
-				}
-				if ( class_exists( '\\Elementor\\Plugin' ) && isset( \Elementor\Plugin::$instance->files_manager ) ) {
-					\Elementor\Plugin::$instance->files_manager->clear_cache();
-				}
-				return array(
-					'post_id'    => $post_id,
-					'permalink'  => get_permalink( $post_id ),
-					'backup_key' => $backup_key,
-				);
-			},
-			'permission_callback' => 'ning_mcp_can_manage',
-			'meta'                => ning_mcp_mcp_meta( array( 'readonly' => false, 'destructive' => true, 'idempotent' => false ) ),
-		)
-	);
-
-	wp_register_ability(
 		'elementor-design/add-threejs-module',
 		array(
 			'label'       => 'Add Three.js Module',
-			'description' => 'Creates an isolated Elementor library section with a Three.js canvas (vanilla three 0.160). Supports optional GLB model via model_attachment_id, poster fallback, lazy IntersectionObserver and reduced-motion. No Pro required.',
+			'description' => 'Creates an isolated Elementor library section with a parameterized Three.js scene. Presets: yarn_ball (handmade brand) or knot. Optional GLB model overrides preset. Warm lighting, environment, knit bump, particles, lazy load, reduced-motion poster fallback, editor notice. Free HTML widget.',
 			'category'    => 'elementor-design',
 			'input_schema' => array(
 				'type'                 => 'object',
 				'properties'           => array(
-					'title'                   => array( 'type' => 'string', 'description' => 'Template title, e.g. Handmade 3D Hero' ),
-					'height'                  => array( 'type' => 'integer', 'minimum' => 300, 'maximum' => 800, 'default' => 500, 'description' => 'Canvas height in px.' ),
-					'poster_image_attachment_id' => array( 'type' => 'integer', 'description' => 'Optional poster image ID shown before Three.js loads.' ),
-					'model_attachment_id'     => array( 'type' => 'integer', 'description' => 'Optional GLB/GLTF attachment ID to load. Empty = procedural torus knot demo.' ),
+					'title'                      => array( 'type' => 'string', 'description' => 'Template title.' ),
+					'preset'                     => array( 'type' => 'string', 'enum' => array( 'yarn_ball', 'knot' ), 'default' => 'yarn_ball', 'description' => 'Scene preset. yarn_ball fits handmade brands.' ),
+					'palette'                    => array( 'type' => 'object', 'properties' => array( 'primary' => array( 'type' => 'string', 'description' => 'Hex e.g. #A67C52' ), 'bg' => array( 'type' => 'string', 'description' => 'Hex background e.g. #FDF6EE' ) ), 'description' => 'Optional colors.' ),
+					'particles'                  => array( 'type' => 'boolean', 'default' => true, 'description' => 'Floating dust particles.' ),
+					'rotation_speed'             => array( 'type' => 'number', 'minimum' => 0.1, 'maximum' => 3, 'default' => 0.6, 'description' => 'Self-rotation speed.' ),
+					'height'                     => array( 'type' => 'integer', 'minimum' => 300, 'maximum' => 800, 'default' => 500, 'description' => 'Canvas height px.' ),
+					'poster_image_attachment_id' => array( 'type' => 'integer', 'description' => 'Optional poster image ID (shown pre-load and for reduced motion).' ),
+					'model_attachment_id'        => array( 'type' => 'integer', 'description' => 'Optional .glb/.gltf attachment ID; overrides preset geometry.' ),
 				),
 				'required'             => array( 'title' ),
 				'additionalProperties' => false,
@@ -1638,7 +1540,18 @@ add_action( 'wp_abilities_api_init', function () {
 			),
 			'execute_callback'    => function ( $input ) {
 				$title  = isset( $input['title'] ) ? sanitize_text_field( $input['title'] ) : 'Three.js Module';
+				$preset = ( isset( $input['preset'] ) && in_array( $input['preset'], array( 'yarn_ball', 'knot' ), true ) ) ? $input['preset'] : 'yarn_ball';
 				$height = isset( $input['height'] ) ? max( 300, min( 800, (int) $input['height'] ) ) : 500;
+				$speed  = isset( $input['rotation_speed'] ) ? max( 0.1, min( 3, (float) $input['rotation_speed'] ) ) : 0.6;
+				$particles = isset( $input['particles'] ) ? (bool) $input['particles'] : true;
+				$primary = '#A67C52';
+				$bg      = '#FDF6EE';
+				if ( isset( $input['palette']['primary'] ) && preg_match( '/^#[0-9a-fA-F]{6}$/', $input['palette']['primary'] ) ) {
+					$primary = $input['palette']['primary'];
+				}
+				if ( isset( $input['palette']['bg'] ) && preg_match( '/^#[0-9a-fA-F]{6}$/', $input['palette']['bg'] ) ) {
+					$bg = $input['palette']['bg'];
+				}
 				$poster_url = '';
 				if ( ! empty( $input['poster_image_attachment_id'] ) ) {
 					$poster_url = wp_get_attachment_url( (int) $input['poster_image_attachment_id'] );
@@ -1653,48 +1566,122 @@ add_action( 'wp_abilities_api_init', function () {
 				$uid = function ( $p ) {
 					return $p . substr( md5( uniqid( (string) mt_rand(), true ) ), 0, 7 );
 				};
-				$root_id = $uid( 'three' );
+				$rootId = $uid( 'three' );
 				$poster_img = $poster_url ? '<img src="' . esc_url( $poster_url ) . '" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0.35;" />' : '';
-				$html = '<div id="' . esc_attr( $root_id ) . '" style="position:relative;height:' . $height . 'px;background:#FDF6EE;border-radius:24px;overflow:hidden;">'
-					. $poster_img
-					. '<canvas style="display:block;width:100%;height:100%;"></canvas>'
-					. '<noscript><p style="text-align:center;padding:40px;color:#8B7355;">Enable JavaScript to view 3D</p></noscript>'
-					. '</div>'
-					. '<script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>'
-					. '<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>'
-					. '<script type="module">'
-					. 'const root=document.getElementById("' . esc_js( $root_id ) . '"); if(!root) throw new Error("root missing");'
-					. 'const canvas=root.querySelector("canvas");'
-					. 'const prefersReduced=window.matchMedia("(prefers-reduced-motion: reduce)").matches;'
-					. 'if(prefersReduced){ root.style.background="#FDF6EE"; } else {'
-					. 'let started=false; const start=()=>{ if(started) return; started=true; init(); };'
-					. 'const obs=new IntersectionObserver(es=>{ es.forEach(e=>{ if(e.isIntersecting) { start(); obs.disconnect(); } }); }, {rootMargin:"200px"}); obs.observe(root);'
-					. 'setTimeout(()=>{ if(!started) start(); }, 3000);'
-					. 'async function init(){'
-					. 'const THREE=await import("three");'
-					. 'const {OrbitControls}=await import("three/addons/controls/OrbitControls.js");'
-					. 'const renderer=new THREE.WebGLRenderer({canvas:canvas, antialias:true, alpha:true});'
-					. 'renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 1.5));'
-					. 'const scene=new THREE.Scene(); scene.background=new THREE.Color(0xFDF6EE);'
-					. 'const camera=new THREE.PerspectiveCamera(45, root.clientWidth/' . $height . ', 0.1, 100); camera.position.set(0,1.2,3);'
-					. 'const controls=new OrbitControls(camera, renderer.domElement); controls.enableDamping=true; controls.target.set(0,0.3,0);'
-					. 'const light1=new THREE.DirectionalLight(0xffffff,1.2); light1.position.set(2,4,2); scene.add(light1);'
-					. 'const light2=new THREE.AmbientLight(0xffffff,0.7); scene.add(light2);'
-					. 'const modelUrl=' . ( $model_url ? '"' . esc_js( $model_url ) . '"' : '""' ) . ';'
-					. 'let mesh=null;'
-					. 'if(modelUrl){'
-					. 'const {GLTFLoader}=await import("three/addons/loaders/GLTFLoader.js");'
-					. 'const {DRACOLoader}=await import("three/addons/loaders/DRACOLoader.js");'
-					. 'const loader=new GLTFLoader(); const draco=new DRACOLoader(); draco.setDecoderPath("https://www.gstatic.com/draco/v1/decoders/"); loader.setDRACOLoader(draco);'
-					. 'loader.load(modelUrl, gltf=>{ mesh=gltf.scene; mesh.scale.set(0.9,0.9,0.9); scene.add(mesh); }, undefined, err=>{ console.warn("GLB load failed", err); createFallback(); });'
-					. '} else { createFallback(); }'
-					. 'function createFallback(){ const geo=new THREE.TorusKnotGeometry(0.7,0.22,120,16); const mat=new THREE.MeshStandardMaterial({color:0xA67C52, roughness:0.45, metalness:0.1}); mesh=new THREE.Mesh(geo, mat); scene.add(mesh); }'
-					. 'function resize(){ const w=root.clientWidth, h=' . $height . '; renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix(); }'
-					. 'window.addEventListener("resize", resize); resize();'
-					. 'function animate(){ requestAnimationFrame(animate); if(mesh && !modelUrl) mesh.rotation.y+=0.006; controls.update(); renderer.render(scene,camera); } animate();'
-					. '} }'
-					. '</script>';
-				$el_id = $uid( 'el' );
+				$model_js   = $model_url ? wp_json_encode( $model_url ) : '""';
+				$particles_js = $particles ? 'true' : 'false';
+				$speed_js   = wp_json_encode( $speed );
+				$preset_js  = wp_json_encode( $preset );
+				$primary_js = wp_json_encode( $primary );
+				$bg_js      = wp_json_encode( $bg );
+
+				$html = <<<HTMLEOF
+<div id="{$rootId}" style="position:relative;height:{$height}px;border-radius:24px;overflow:hidden;background:linear-gradient(180deg,{$bg} 0%,#F5E9DA 100%);">{$poster_img}<div class="hh-shadow"></div><canvas style="display:block;width:100%;height:100%;"></canvas><div class="hh-notice">3D renders on the live site</div><noscript><p style="text-align:center;padding:40px;color:#8B7355;">Enable JavaScript to view 3D</p></noscript></div>
+<style>#{$rootId} .hh-shadow{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);width:230px;height:34px;background:radial-gradient(ellipse at center,rgba(91,74,63,0.30),rgba(91,74,63,0) 70%);filter:blur(2px);}#{$rootId} .hh-notice{position:absolute;top:12px;right:12px;background:rgba(91,74,63,0.88);color:#FDF6EE;font:12px/1.4 -apple-system,sans-serif;padding:6px 10px;border-radius:8px;pointer-events:none;}</style>
+<script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="module">
+const root=document.getElementById("{$rootId}");
+if(!root) throw new Error("three root missing");
+const canvas=root.querySelector("canvas");
+const notice=root.querySelector(".hh-notice"); if(notice) notice.remove();
+const reduced=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+if(!reduced){
+  let started=false;
+  const start=()=>{ if(started) return; started=true; init().catch(err=>{ const d=document.createElement("div"); d.style.cssText="position:absolute;left:12px;bottom:12px;background:rgba(140,40,40,0.92);color:#fff;font:12px sans-serif;padding:6px 10px;border-radius:8px;max-width:80%;"; d.textContent="3D failed: "+String(err&&err.message||err); root.appendChild(d); }); };
+  const obs=new IntersectionObserver(es=>{ es.forEach(e=>{ if(e.isIntersecting){ start(); obs.disconnect(); } }); },{rootMargin:"200px"});
+  obs.observe(root);
+  setTimeout(()=>{ if(!started) start(); },3000);
+}
+async function init(){
+  const THREE=await import("three");
+  const {OrbitControls}=await import("three/addons/controls/OrbitControls.js");
+  const {RoomEnvironment}=await import("three/addons/environments/RoomEnvironment.js");
+  const renderer=new THREE.WebGLRenderer({canvas:canvas,antialias:true,alpha:true});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.5));
+  renderer.toneMapping=THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure=1.05;
+  const scene=new THREE.Scene();
+  const pmrem=new THREE.PMREMGenerator(renderer);
+  scene.environment=pmrem.fromScene(new RoomEnvironment(),0.04).texture;
+  const camera=new THREE.PerspectiveCamera(42,root.clientWidth/{$height},0.1,100);
+  camera.position.set(0,0.6,3.4);
+  const controls=new OrbitControls(camera,renderer.domElement);
+  controls.enableDamping=true; controls.enablePan=false;
+  controls.minDistance=2.2; controls.maxDistance=6; controls.target.set(0,0.15,0);
+  scene.add(new THREE.AmbientLight(0xFFF2E2,0.4));
+  const key=new THREE.DirectionalLight(0xFFE8CF,1.1); key.position.set(3,5,2); scene.add(key);
+  const rim=new THREE.DirectionalLight(0xD9A679,0.65); rim.position.set(-3,2,-3); scene.add(rim);
+  function knitTex(){
+    const c=document.createElement("canvas"); c.width=c.height=256;
+    const g=c.getContext("2d");
+    g.fillStyle="#8a8a8a"; g.fillRect(0,0,256,256);
+    g.strokeStyle="#c6c6c6"; g.lineWidth=11; g.lineCap="round";
+    const s=32;
+    for(let y=0;y<8;y++){ for(let x=0;x<8;x++){
+      const cx=x*s+s/2, cy=y*s+s/2;
+      g.beginPath(); g.moveTo(cx-s/2+5, cy+s/2-7); g.quadraticCurveTo(cx, cy-s/2+7, cx+s/2-5, cy+s/2-7); g.stroke();
+      g.beginPath(); g.moveTo(cx-s/2+5, cy-s/2+7); g.quadraticCurveTo(cx, cy+s/2-7, cx+s/2-5, cy-s/2+7); g.stroke();
+    }}
+    const t=new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(5,5); return t;
+  }
+  const bump=knitTex();
+  const mat=new THREE.MeshPhysicalMaterial({color:{$primary_js},roughness:0.78,sheen:1,sheenColor:new THREE.Color(0xE8D5BE),sheenRoughness:0.55,bumpMap:bump,bumpScale:0.5});
+  const matB=new THREE.MeshPhysicalMaterial({color:0xD9A679,roughness:0.8,sheen:1,sheenColor:new THREE.Color(0xF0E2CC),sheenRoughness:0.6,bumpMap:bump,bumpScale:0.4});
+  const group=new THREE.Group(); scene.add(group);
+  const orbiters=[];
+  const PRESET={$preset_js};
+  function fallback(){
+    if(PRESET==="knot"){ group.add(new THREE.Mesh(new THREE.TorusKnotGeometry(0.75,0.24,160,24),mat)); }
+    else{
+      group.add(new THREE.Mesh(new THREE.SphereGeometry(0.95,64,64),mat));
+      const thread=(pts,r)=>{ const cur=new THREE.CatmullRomCurve3(pts); return new THREE.Mesh(new THREE.TubeGeometry(cur,48,r,8,false),matB); };
+      group.add(thread([new THREE.Vector3(-0.2,0.95,0.3),new THREE.Vector3(0.4,1.25,0.2),new THREE.Vector3(0.9,1.0,-0.1)],0.045));
+      group.add(thread([new THREE.Vector3(0.1,-0.95,-0.2),new THREE.Vector3(-0.5,-1.2,0.15),new THREE.Vector3(-1.0,-0.9,0.35)],0.04));
+      for(let i=0;i<3;i++){
+        const m=new THREE.Mesh(new THREE.SphereGeometry(0.13+i*0.045,32,32),i%2?matB:mat);
+        m.userData.orbit={r:1.55+i*0.28,s:0.25+i*0.09,ph:i*2.1};
+        orbiters.push(m); scene.add(m);
+      }
+    }
+  }
+  const MODEL={$model_js};
+  if(MODEL){
+    const {GLTFLoader}=await import("three/addons/loaders/GLTFLoader.js");
+    const {DRACOLoader}=await import("three/addons/loaders/DRACOLoader.js");
+    const loader=new GLTFLoader();
+    const draco=new DRACOLoader(); draco.setDecoderPath("https://www.gstatic.com/draco/v1/decoders/"); loader.setDRACOLoader(draco);
+    loader.load(MODEL,g=>{ mesh=g.scene; const box=new THREE.Box3().setFromObject(mesh); const size=box.getSize(new THREE.Vector3()).length(); const s=2.2/Math.max(size,0.001); mesh.scale.setScalar(s); const center=box.getCenter(new THREE.Vector3()).multiplyScalar(s); mesh.position.sub(center); group.add(mesh); },undefined,e=>{ console.warn("GLB load failed",e); fallback(); });
+  } else { fallback(); }
+  let mesh=null;
+  let points=null;
+  if({$particles_js}){
+    const n=140, pos=new Float32Array(n*3);
+    for(let i=0;i<n;i++){ pos[i*3]=(Math.random()-0.5)*7; pos[i*3+1]=(Math.random()-0.5)*4; pos[i*3+2]=(Math.random()-0.5)*4; }
+    const pg=new THREE.BufferGeometry(); pg.setAttribute("position",new THREE.BufferAttribute(pos,3));
+    const sc=document.createElement("canvas"); sc.width=sc.height=64;
+    const sg=sc.getContext("2d"); const gr=sg.createRadialGradient(32,32,0,32,32,30);
+    gr.addColorStop(0,"rgba(217,166,121,0.9)"); gr.addColorStop(1,"rgba(217,166,121,0)");
+    sg.fillStyle=gr; sg.fillRect(0,0,64,64);
+    points=new THREE.Points(pg,new THREE.PointsMaterial({size:0.09,map:new THREE.CanvasTexture(sc),transparent:true,opacity:0.55,depthWrite:false,color:0xD9A679}));
+    scene.add(points);
+  }
+  function resize(){ const w=root.clientWidth||1; renderer.setSize(w,{$height},false); camera.aspect=w/{$height}; camera.updateProjectionMatrix(); }
+  window.addEventListener("resize",resize); resize();
+  const clock=new THREE.Clock();
+  function animate(){
+    requestAnimationFrame(animate);
+    const t=clock.getElapsedTime();
+    if(!MODEL) group.rotation.y+={$speed_js}*0.01;
+    group.position.y=Math.sin(t*0.8)*0.07;
+    orbiters.forEach(o=>{ const ob=o.userData.orbit; o.position.set(Math.cos(t*ob.s+ob.ph)*ob.r,Math.sin(t*ob.s*0.8+ob.ph)*0.5,Math.sin(t*ob.s+ob.ph)*ob.r*0.6); o.rotation.y=t*0.4; });
+    if(points) points.rotation.y=t*0.02;
+    controls.update(); renderer.render(scene,camera);
+  }
+  animate();
+}
+</script>
+HTMLEOF;
 				$container = array(
 					'id'       => $uid( 'three' ),
 					'elType'   => 'container',
@@ -1705,7 +1692,7 @@ add_action( 'wp_abilities_api_init', function () {
 					),
 					'elements' => array(
 						array(
-							'id'         => $el_id,
+							'id'         => $uid( 'el' ),
 							'elType'     => 'widget',
 							'widgetType' => 'html',
 							'settings'   => array( 'html' => $html ),
@@ -1746,3 +1733,4 @@ add_action( 'wp_abilities_api_init', function () {
 		)
 	);
 } );
+

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP MCP Abilities
  * Description: Registers content-management abilities (posts, comments, media and WooCommerce variable products) exposed through the MCP Adapter default server.
- * Version:     1.4.1
+ * Version:     1.4.2
  * Requires at least: 6.9
  * Requires PHP: 7.4
  * Requires Plugins: mcp-adapter
@@ -1486,7 +1486,7 @@ add_action( 'wp_abilities_api_init', function () {
 				if ( is_wp_error( $template_id ) ) {
 					return $template_id;
 				}
-				update_post_meta( $template_id, '_elementor_data', wp_json_encode( array( $hero ) ) );
+				update_post_meta( $template_id, '_elementor_data', wp_slash( wp_json_encode( array( $hero ) ) ) );
 				update_post_meta( $template_id, '_elementor_template_type', 'section' );
 				update_post_meta( $template_id, '_elementor_edit_mode', 'builder' );
 				$ver = defined( 'ELEMENTOR_VERSION' ) ? ELEMENTOR_VERSION : '4.2.3';

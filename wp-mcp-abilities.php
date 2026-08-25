@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP MCP Abilities
  * Description: Registers content-management abilities (posts, comments, media and WooCommerce variable products) exposed through the MCP Adapter default server.
- * Version:     1.3.1
+ * Version:     1.3.2
  * Requires at least: 6.9
  * Requires PHP: 7.4
  * Requires Plugins: mcp-adapter
@@ -237,6 +237,30 @@ function ning_mcp_upload_image_file( $filename, $data ) {
 	);
 }
 
+function ning_mcp_flush_attribute_cache() {
+	delete_transient( 'wc_attribute_taxonomies' );
+	delete_option( '_transient_wc_attribute_taxonomies' );
+	delete_option( '_transient_timeout_wc_attribute_taxonomies' );
+	if ( class_exists( 'WC_Cache_Helper' ) && method_exists( 'WC_Cache_Helper', 'invalidate_cache_group' ) ) {
+		WC_Cache_Helper::invalidate_cache_group( 'attributes' );
+	}
+	if ( function_exists( 'wc_get_attribute_taxonomies' ) ) {
+		wc_get_attribute_taxonomies();
+	}
+}
+
+function ning_mcp_attribute_row_exists( $slug ) {
+	if ( ! function_exists( 'wc_get_attribute_taxonomies' ) ) {
+		return false;
+	}
+	foreach ( (array) wc_get_attribute_taxonomies() as $tax_obj ) {
+		if ( isset( $tax_obj->attribute_name ) && $slug === $tax_obj->attribute_name ) {
+			return $tax_obj;
+		}
+	}
+	return false;
+}
+
 function ning_mcp_prepare_attribute( $name, $options ) {
 	if ( ! function_exists( 'wc_attribute_taxonomy_name' ) ) {
 		return new WP_Error( 'ning_mcp_wc_missing', 'WooCommerce is not active.' );
@@ -248,24 +272,36 @@ function ning_mcp_prepare_attribute( $name, $options ) {
 	if ( function_exists( 'wc_attribute_taxonomy_id_by_name' ) ) {
 		$attribute_id = (int) wc_attribute_taxonomy_id_by_name( $slug );
 	}
+
 	if ( ! $attribute_id ) {
-		try {
-			$store = WC_Data_Store::load( 'product-attribute' );
-			if ( is_object( $store ) && method_exists( $store, 'create_attribute' ) ) {
-				$attribute_id = (int) $store->create_attribute(
-					array(
-						'name'         => $name,
-						'slug'         => $slug,
-						'type'         => 'select',
-						'order_by'     => 'menu_order',
-						'has_archives' => false,
-					)
-				);
+		if ( ! function_exists( 'wc_create_attribute' ) ) {
+			$admin_attributes_file = defined( 'WC_ABSPATH' ) ? WC_ABSPATH . 'includes/admin/class-wc-admin-attributes.php' : '';
+			if ( ! $admin_attributes_file && function_exists( 'WC' ) && WC() && WC()->plugin_path() ) {
+				$admin_attributes_file = WC()->plugin_path() . '/includes/admin/class-wc-admin-attributes.php';
 			}
-		} catch ( Exception $e ) {
-			$attribute_id = 0;
+			if ( $admin_attributes_file && file_exists( $admin_attributes_file ) ) {
+				include_once $admin_attributes_file;
+			}
 		}
-		if ( ! $attribute_id ) {
+
+		if ( function_exists( 'wc_create_attribute' ) ) {
+			$created = wc_create_attribute(
+				array(
+					'name'         => $name,
+					'slug'         => $slug,
+					'type'         => 'select',
+					'order_by'     => 'menu_order',
+					'has_archives' => false,
+				)
+			);
+			if ( is_wp_error( $created ) ) {
+				if ( 'woocommerce_taxonomy_already_exists' !== $created->get_error_code() ) {
+					return $created;
+				}
+			} else {
+				$attribute_id = (int) $created;
+			}
+		} else {
 			global $wpdb;
 			$inserted = $wpdb->insert(
 				$wpdb->prefix . 'wc_attribute_taxonomies',
@@ -278,7 +314,22 @@ function ning_mcp_prepare_attribute( $name, $options ) {
 				)
 			);
 			$attribute_id = $inserted ? (int) $wpdb->insert_id : 0;
-			delete_transient( 'wc_attribute_taxonomies' );
+		}
+
+		ning_mcp_flush_attribute_cache();
+
+		if ( ! $attribute_id ) {
+			$existing_row = ning_mcp_attribute_row_exists( $slug );
+			if ( $existing_row && isset( $existing_row->attribute_id ) ) {
+				$attribute_id = (int) $existing_row->attribute_id;
+			}
+		}
+		if ( ! $attribute_id ) {
+			return new WP_Error( 'ning_mcp_attribute_create_failed', sprintf( 'Failed to register attribute "%s" in the wc_attribute_taxonomies table. Attribute row was not found after creation attempt.', $name ) );
+		}
+		$verify_row = ning_mcp_attribute_row_exists( $slug );
+		if ( ! $verify_row ) {
+			return new WP_Error( 'ning_mcp_attribute_verify_failed', sprintf( 'Attribute "%s" was created (id %d) but is not visible in wc_get_attribute_taxonomies().', $name, $attribute_id ) );
 		}
 	}
 

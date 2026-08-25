@@ -1,7 +1,7 @@
 {
   "name": "WP MCP Abilities",
   "slug": "wp-mcp-abilities",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "package": "https://github.com/mrjas0n/wp-mcp-abilities/releases/latest/download/wp-mcp-abilities.zip",
   "tested": "6.9",
   "requires": "6.9",

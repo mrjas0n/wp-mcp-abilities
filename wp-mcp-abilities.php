@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP MCP Abilities
  * Description: Registers content-management abilities (posts, comments, media and WooCommerce variable products) exposed through the MCP Adapter default server.
- * Version:     1.4.3
+ * Version:     1.5.0
  * Requires at least: 6.9
  * Requires PHP: 7.4
  * Requires Plugins: mcp-adapter
@@ -115,6 +115,7 @@ add_filter( 'mcp_adapter_default_server_config', function ( $config ) {
 			'elementor-design/get-page-data',
 			'elementor-design/add-handmade-hero',
 			'elementor-design/add-html-hero',
+			'elementor-design/add-threejs-module',
 		)
 	) ) );
 	return $config;
@@ -1606,6 +1607,142 @@ add_action( 'wp_abilities_api_init', function () {
 			},
 			'permission_callback' => 'ning_mcp_can_manage',
 			'meta'                => ning_mcp_mcp_meta( array( 'readonly' => false, 'destructive' => true, 'idempotent' => false ) ),
+		)
+	);
+
+	wp_register_ability(
+		'elementor-design/add-threejs-module',
+		array(
+			'label'       => 'Add Three.js Module',
+			'description' => 'Creates an isolated Elementor library section with a Three.js canvas (vanilla three 0.160). Supports optional GLB model via model_attachment_id, poster fallback, lazy IntersectionObserver and reduced-motion. No Pro required.',
+			'category'    => 'elementor-design',
+			'input_schema' => array(
+				'type'                 => 'object',
+				'properties'           => array(
+					'title'                   => array( 'type' => 'string', 'description' => 'Template title, e.g. Handmade 3D Hero' ),
+					'height'                  => array( 'type' => 'integer', 'minimum' => 300, 'maximum' => 800, 'default' => 500, 'description' => 'Canvas height in px.' ),
+					'poster_image_attachment_id' => array( 'type' => 'integer', 'description' => 'Optional poster image ID shown before Three.js loads.' ),
+					'model_attachment_id'     => array( 'type' => 'integer', 'description' => 'Optional GLB/GLTF attachment ID to load. Empty = procedural torus knot demo.' ),
+				),
+				'required'             => array( 'title' ),
+				'additionalProperties' => false,
+			),
+			'output_schema' => array(
+				'type'       => 'object',
+				'properties' => array(
+					'template_id' => array( 'type' => 'integer' ),
+					'shortcode'   => array( 'type' => 'string' ),
+					'edit_url'    => array( 'type' => 'string' ),
+					'preview_url' => array( 'type' => 'string' ),
+				),
+			),
+			'execute_callback'    => function ( $input ) {
+				$title  = isset( $input['title'] ) ? sanitize_text_field( $input['title'] ) : 'Three.js Module';
+				$height = isset( $input['height'] ) ? max( 300, min( 800, (int) $input['height'] ) ) : 500;
+				$poster_url = '';
+				if ( ! empty( $input['poster_image_attachment_id'] ) ) {
+					$poster_url = wp_get_attachment_url( (int) $input['poster_image_attachment_id'] );
+				}
+				$model_url = '';
+				if ( ! empty( $input['model_attachment_id'] ) ) {
+					$model_url = wp_get_attachment_url( (int) $input['model_attachment_id'] );
+					if ( $model_url && ! preg_match( '/\.(glb|gltf)$/i', $model_url ) ) {
+						return new WP_Error( 'ning_mcp_bad_model', 'Model attachment must be .glb or .gltf' );
+					}
+				}
+				$uid = function ( $p ) {
+					return $p . substr( md5( uniqid( (string) mt_rand(), true ) ), 0, 7 );
+				};
+				$root_id = $uid( 'three' );
+				$poster_img = $poster_url ? '<img src="' . esc_url( $poster_url ) . '" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0.35;" />' : '';
+				$html = '<div id="' . esc_attr( $root_id ) . '" style="position:relative;height:' . $height . 'px;background:#FDF6EE;border-radius:24px;overflow:hidden;">'
+					. $poster_img
+					. '<canvas style="display:block;width:100%;height:100%;"></canvas>'
+					. '<noscript><p style="text-align:center;padding:40px;color:#8B7355;">Enable JavaScript to view 3D</p></noscript>'
+					. '</div>'
+					. '<script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>'
+					. '<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>'
+					. '<script type="module">'
+					. 'const root=document.getElementById("' . esc_js( $root_id ) . '"); if(!root) throw new Error("root missing");'
+					. 'const canvas=root.querySelector("canvas");'
+					. 'const prefersReduced=window.matchMedia("(prefers-reduced-motion: reduce)").matches;'
+					. 'if(prefersReduced){ root.style.background="#FDF6EE"; } else {'
+					. 'let started=false; const start=()=>{ if(started) return; started=true; init(); };'
+					. 'const obs=new IntersectionObserver(es=>{ es.forEach(e=>{ if(e.isIntersecting) { start(); obs.disconnect(); } }); }, {rootMargin:"200px"}); obs.observe(root);'
+					. 'setTimeout(()=>{ if(!started) start(); }, 3000);'
+					. 'async function init(){'
+					. 'const THREE=await import("three");'
+					. 'const {OrbitControls}=await import("three/addons/controls/OrbitControls.js");'
+					. 'const renderer=new THREE.WebGLRenderer({canvas:canvas, antialias:true, alpha:true});'
+					. 'renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 1.5));'
+					. 'const scene=new THREE.Scene(); scene.background=new THREE.Color(0xFDF6EE);'
+					. 'const camera=new THREE.PerspectiveCamera(45, root.clientWidth/' . $height . ', 0.1, 100); camera.position.set(0,1.2,3);'
+					. 'const controls=new OrbitControls(camera, renderer.domElement); controls.enableDamping=true; controls.target.set(0,0.3,0);'
+					. 'const light1=new THREE.DirectionalLight(0xffffff,1.2); light1.position.set(2,4,2); scene.add(light1);'
+					. 'const light2=new THREE.AmbientLight(0xffffff,0.7); scene.add(light2);'
+					. 'const modelUrl=' . ( $model_url ? '"' . esc_js( $model_url ) . '"' : '""' ) . ';'
+					. 'let mesh=null;'
+					. 'if(modelUrl){'
+					. 'const {GLTFLoader}=await import("three/addons/loaders/GLTFLoader.js");'
+					. 'const {DRACOLoader}=await import("three/addons/loaders/DRACOLoader.js");'
+					. 'const loader=new GLTFLoader(); const draco=new DRACOLoader(); draco.setDecoderPath("https://www.gstatic.com/draco/v1/decoders/"); loader.setDRACOLoader(draco);'
+					. 'loader.load(modelUrl, gltf=>{ mesh=gltf.scene; mesh.scale.set(0.9,0.9,0.9); scene.add(mesh); }, undefined, err=>{ console.warn("GLB load failed", err); createFallback(); });'
+					. '} else { createFallback(); }'
+					. 'function createFallback(){ const geo=new THREE.TorusKnotGeometry(0.7,0.22,120,16); const mat=new THREE.MeshStandardMaterial({color:0xA67C52, roughness:0.45, metalness:0.1}); mesh=new THREE.Mesh(geo, mat); scene.add(mesh); }'
+					. 'function resize(){ const w=root.clientWidth, h=' . $height . '; renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix(); }'
+					. 'window.addEventListener("resize", resize); resize();'
+					. 'function animate(){ requestAnimationFrame(animate); if(mesh && !modelUrl) mesh.rotation.y+=0.006; controls.update(); renderer.render(scene,camera); } animate();'
+					. '} }'
+					. '</script>';
+				$el_id = $uid( 'el' );
+				$container = array(
+					'id'       => $uid( 'three' ),
+					'elType'   => 'container',
+					'settings' => array(
+						'content_width' => 'boxed',
+						'boxed_width'   => array( 'unit' => 'px', 'size' => 1280, 'sizes' => array() ),
+						'padding'       => array( 'unit' => 'px', 'top' => '0', 'right' => '0', 'bottom' => '0', 'left' => '0', 'isLinked' => false ),
+					),
+					'elements' => array(
+						array(
+							'id'         => $el_id,
+							'elType'     => 'widget',
+							'widgetType' => 'html',
+							'settings'   => array( 'html' => $html ),
+							'elements'   => array(),
+							'isInner'    => false,
+							'isLocked'   => false,
+						),
+					),
+					'isInner'  => false,
+					'isLocked' => false,
+				);
+				$template_id = wp_insert_post( array(
+					'post_type'   => 'elementor_library',
+					'post_title'  => $title,
+					'post_status' => 'publish',
+					'post_content'=> '',
+				), true );
+				if ( is_wp_error( $template_id ) ) {
+					return $template_id;
+				}
+				update_post_meta( $template_id, '_elementor_data', wp_slash( wp_json_encode( array( $container ) ) ) );
+				update_post_meta( $template_id, '_elementor_template_type', 'section' );
+				update_post_meta( $template_id, '_elementor_edit_mode', 'builder' );
+				$ver = defined( 'ELEMENTOR_VERSION' ) ? ELEMENTOR_VERSION : '4.2.3';
+				update_post_meta( $template_id, '_elementor_version', $ver );
+				if ( class_exists( '\\Elementor\\Plugin' ) && isset( \Elementor\Plugin::$instance->files_manager ) ) {
+					\Elementor\Plugin::$instance->files_manager->clear_cache();
+				}
+				return array(
+					'template_id' => (int) $template_id,
+					'shortcode'   => '[elementor-template id="' . $template_id . '"]',
+					'edit_url'    => admin_url( 'post.php?post=' . $template_id . '&action=elementor' ),
+					'preview_url' => get_permalink( $template_id ),
+				);
+			},
+			'permission_callback' => 'ning_mcp_can_manage',
+			'meta'                => ning_mcp_mcp_meta( array( 'readonly' => false, 'destructive' => false, 'idempotent' => false ) ),
 		)
 	);
 } );

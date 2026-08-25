@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP MCP Abilities
  * Description: Registers content-management abilities (posts, comments, media and WooCommerce variable products) exposed through the MCP Adapter default server.
- * Version:     1.3.3
+ * Version:     1.3.4
  * Requires at least: 6.9
  * Requires PHP: 7.4
  * Requires Plugins: mcp-adapter
@@ -360,17 +360,28 @@ function ning_mcp_prepare_attribute( $name, $options ) {
 		if ( is_wp_error( $term ) ) {
 			if ( 'term_exists' === $term->get_error_code() ) {
 				$term_data = $term->get_error_data();
-				$term_id   = isset( $term_data['term_id'] ) ? (int) $term_data['term_id'] : 0;
+				if ( is_array( $term_data ) && isset( $term_data['term_id'] ) ) {
+					$term_id = (int) $term_data['term_id'];
+				} elseif ( is_numeric( $term_data ) ) {
+					$term_id = (int) $term_data;
+				} else {
+					$by_name = get_term_by( 'name', $option, $taxonomy );
+					$term_id = $by_name ? (int) $by_name->term_id : 0;
+				}
 			} else {
-				return $term;
+				return new WP_Error( 'ning_mcp_term_insert_failed', sprintf( 'Failed to insert option "%s" into %s: [%s] %s', $option, $taxonomy, $term->get_error_code(), $term->get_error_message() ) );
 			}
 		} else {
-			$term_id = (int) $term['term_id'];
+			$term_id = isset( $term['term_id'] ) ? (int) $term['term_id'] : 0;
 		}
 		$term_obj = $term_id ? get_term( $term_id, $taxonomy ) : null;
-		if ( $term_obj && ! is_wp_error( $term_obj ) ) {
-			$slug_map[ $option ] = $term_obj->slug;
+		if ( ! $term_obj || is_wp_error( $term_obj ) ) {
+			$term_obj = get_term_by( 'name', $option, $taxonomy );
 		}
+		if ( ! $term_obj || is_wp_error( $term_obj ) ) {
+			return new WP_Error( 'ning_mcp_term_lookup_failed', sprintf( 'Option "%s" (term_id %d) could not be loaded from %s after insert.', $option, $term_id, $taxonomy ) );
+		}
+		$slug_map[ $option ] = $term_obj->slug;
 	}
 
 	return array(
@@ -999,9 +1010,9 @@ add_action( 'wp_abilities_api_init', function () {
 						if ( ! $known ) {
 							return new WP_Error( 'ning_mcp_unknown_attribute', sprintf( 'Variant %d references unknown attribute "%s".', $i, $attr_name ) );
 						}
-						if ( ! isset( $known['slug_map'][ $option ] ) ) {
-							return new WP_Error( 'ning_mcp_unknown_option', sprintf( 'Variant %d references unknown option "%s" for attribute "%s".', $i, (string) $option, $attr_name ) );
-						}
+					if ( ! isset( $known['slug_map'][ $option ] ) ) {
+						return new WP_Error( 'ning_mcp_unknown_option', sprintf( 'Variant %d references unknown option "%s" for attribute "%s". Available slug_map: %s', $i, (string) $option, $attr_name, wp_json_encode( $known['slug_map'] ) ) );
+					}
 						$var_attrs[ $known['taxonomy'] ] = $known['slug_map'][ $option ];
 					}
 

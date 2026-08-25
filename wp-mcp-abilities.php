@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP MCP Abilities
  * Description: Registers content-management abilities (posts, comments, media and WooCommerce variable products) exposed through the MCP Adapter default server.
- * Version:     1.3.4
+ * Version:     1.3.5
  * Requires at least: 6.9
  * Requires PHP: 7.4
  * Requires Plugins: mcp-adapter
@@ -351,6 +351,7 @@ function ning_mcp_prepare_attribute( $name, $options ) {
 	}
 
 	$slug_map = array();
+	$id_map   = array();
 	foreach ( (array) $options as $option ) {
 		$option = trim( (string) $option );
 		if ( '' === $option ) {
@@ -382,6 +383,7 @@ function ning_mcp_prepare_attribute( $name, $options ) {
 			return new WP_Error( 'ning_mcp_term_lookup_failed', sprintf( 'Option "%s" (term_id %d) could not be loaded from %s after insert.', $option, $term_id, $taxonomy ) );
 		}
 		$slug_map[ $option ] = $term_obj->slug;
+		$id_map[ $option ]   = (int) $term_obj->term_id;
 	}
 
 	return array(
@@ -390,6 +392,7 @@ function ning_mcp_prepare_attribute( $name, $options ) {
 		'attribute'  => $name,
 		'attribute_id' => $attribute_id,
 		'slug_map'   => $slug_map,
+		'id_map'     => $id_map,
 	);
 }
 
@@ -977,7 +980,7 @@ add_action( 'wp_abilities_api_init', function () {
 						$wc_attr->set_id( $attr['attribute_id'] );
 					}
 					$wc_attr->set_name( $attr['taxonomy'] );
-					$wc_attr->set_options( array_values( $attr['slug_map'] ) );
+					$wc_attr->set_options( array_values( $attr['id_map'] ) );
 					$wc_attr->set_position( 0 );
 					$wc_attr->set_visible( true );
 					$wc_attr->set_variation( true );

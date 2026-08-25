@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP MCP Abilities
  * Description: Registers content-management abilities (posts, comments, media and WooCommerce variable products) exposed through the MCP Adapter default server.
- * Version:     1.5.2
+ * Version:     1.5.3
  * Requires at least: 6.9
  * Requires PHP: 7.4
  * Requires Plugins: mcp-adapter
@@ -855,7 +855,10 @@ add_action( 'wp_abilities_api_init', function () {
 					} elseif ( ! empty( $file['url'] ) ) {
 						$response = wp_remote_get(
 							esc_url_raw( $file['url'] ),
-							array( 'timeout' => 40 )
+							array(
+								'timeout'           => 40,
+								'reject_unsafe_urls' => true,
+							)
 						);
 						if ( is_wp_error( $response ) ) {
 							$results[] = array( 'index' => $i, 'error' => 'Download failed: ' . $response->get_error_message() );
@@ -1308,12 +1311,15 @@ add_action( 'wp_abilities_api_init', function () {
 				}
 				$backup_path = '';
 				if ( file_exists( $full ) ) {
-					$backup_dir = get_stylesheet_directory() . '/backups';
+					$upload_dir = wp_upload_dir();
+					$backup_dir = $upload_dir['basedir'] . '/wp-mcp-abilities-backups';
 					if ( ! file_exists( $backup_dir ) ) {
 						wp_mkdir_p( $backup_dir );
-						file_put_contents( $backup_dir . '/.htaccess', "Deny from all\n" );
+						file_put_contents( $backup_dir . '/.htaccess', "Require all denied\nDeny from all\n" );
+						file_put_contents( $backup_dir . '/index.html', '' );
 					}
-					$backup_path = $backup_dir . '/' . gmdate( 'Ymd-His' ) . '-' . str_replace( '/', '-', $rel ) . '.bak';
+					$backup_name = gmdate( 'Ymd-His' ) . '-' . wp_rand( 1000, 9999 ) . '-' . str_replace( '/', '-', $rel ) . '.bak';
+					$backup_path = $backup_dir . '/' . $backup_name;
 					copy( $full, $backup_path );
 				}
 				$bytes = file_put_contents( $full, $input['content'] );
@@ -1323,7 +1329,7 @@ add_action( 'wp_abilities_api_init', function () {
 				if ( function_exists( 'wp_cache_flush' ) ) {
 					wp_cache_flush();
 				}
-				return array( 'path' => $rel, 'backup_path' => $backup_path ? str_replace( get_stylesheet_directory() . '/', '', $backup_path ) : '', 'bytes' => (int) $bytes );
+				return array( 'path' => $rel, 'backup_path' => $backup_path ? basename( $backup_path ) : '', 'bytes' => (int) $bytes );
 			},
 			'permission_callback' => 'ning_mcp_can_manage',
 			'meta'                => ning_mcp_mcp_meta( array( 'readonly' => false, 'destructive' => true, 'idempotent' => false ) ),
@@ -1509,6 +1515,109 @@ add_action( 'wp_abilities_api_init', function () {
 	);
 
 	wp_register_ability(
+		'elementor-design/add-html-hero',
+		array(
+			'label'       => 'Add Handmade HTML Hero (Free)',
+			'description' => 'Inserts a warm handmade-style hero at the top of an Elementor page using a free HTML widget (no Pro required). Backs up existing data.',
+			'category'    => 'elementor-design',
+			'input_schema' => array(
+				'type'                 => 'object',
+				'properties'           => array(
+					'post_id'               => array( 'type' => 'integer', 'description' => 'Target page ID (defaults to front page).' ),
+					'title'                 => array( 'type' => 'string', 'description' => 'Hero heading' ),
+					'subtitle'              => array( 'type' => 'string', 'description' => 'Hero subtitle' ),
+					'cta_text'              => array( 'type' => 'string', 'description' => 'Button text' ),
+					'cta_url'               => array( 'type' => 'string', 'description' => 'Button URL' ),
+					'image_attachment_id'   => array( 'type' => 'integer', 'description' => 'Optional image ID for inline <img>' ),
+				),
+				'required'             => array( 'title' ),
+				'additionalProperties' => false,
+			),
+			'output_schema' => array(
+				'type'       => 'object',
+				'properties' => array(
+					'post_id'    => array( 'type' => 'integer' ),
+					'permalink'  => array( 'type' => 'string' ),
+					'backup_key' => array( 'type' => 'string' ),
+				),
+			),
+			'execute_callback'    => function ( $input ) {
+				$post_id = ! empty( $input['post_id'] ) ? (int) $input['post_id'] : (int) get_option( 'page_on_front' );
+				if ( ! $post_id || ! get_post( $post_id ) ) {
+					return new WP_Error( 'ning_mcp_not_found', 'Target page not found.' );
+				}
+				$raw  = get_post_meta( $post_id, '_elementor_data', true );
+				$data = $raw ? json_decode( $raw, true ) : array();
+				if ( ! is_array( $data ) ) {
+					$data = array();
+				}
+				$backup_key = '_elementor_data_backup_' . gmdate( 'YmdHis' );
+				if ( $raw ) {
+					update_post_meta( $post_id, $backup_key, $raw );
+				}
+				$uid = function ( $p ) {
+					return $p . substr( md5( uniqid( (string) mt_rand(), true ) ), 0, 7 );
+				};
+				$title    = isset( $input['title'] ) ? $input['title'] : 'Handmade with Love';
+				$subtitle = isset( $input['subtitle'] ) ? $input['subtitle'] : 'Warm crochet for everyday cozy';
+				$cta_text = isset( $input['cta_text'] ) ? $input['cta_text'] : 'Shop New In';
+				$cta_url  = isset( $input['cta_url'] ) ? $input['cta_url'] : home_url( '/shop/' );
+				$img_html = '';
+				if ( ! empty( $input['image_attachment_id'] ) ) {
+					$url = wp_get_attachment_url( (int) $input['image_attachment_id'] );
+					if ( $url ) {
+						$img_html = '<img src="' . esc_url( $url ) . '" alt="" style="max-width:100%;height:auto;border-radius:16px;margin-top:16px;" />';
+					}
+				}
+				$html = '<div style="background:#FDF6EE;border-radius:24px;padding:80px 24px;text-align:center;max-width:1280px;margin:0 auto;">'
+					. '<h1 style="font-family:Caveat, cursive; font-size:48px; color:#5B4A3F; margin:0 0 16px;">' . esc_html( $title ) . '</h1>'
+					. '<p style="color:#8B7355; font-size:18px; margin:0 0 24px;">' . esc_html( $subtitle ) . '</p>'
+					. '<a href="' . esc_url( $cta_url ) . '" style="display:inline-block; background:#A67C52; color:#fff; border-radius:999px; padding:16px 32px; text-decoration:none; font-weight:600;">' . esc_html( $cta_text ) . '</a>'
+					. $img_html . '</div>';
+				$hero = array(
+					'id'       => $uid( 'hero' ),
+					'elType'   => 'container',
+					'settings' => array(
+						'content_width' => 'boxed',
+						'boxed_width'   => array( 'unit' => 'px', 'size' => 1280, 'sizes' => array() ),
+						'padding'       => array( 'unit' => 'px', 'top' => '0', 'right' => '0', 'bottom' => '0', 'left' => '0', 'isLinked' => false ),
+						'gap'           => array( 'unit' => 'px', 'size' => '0', 'sizes' => array() ),
+					),
+					'elements' => array(
+						array(
+							'id'         => $uid( 'html' ),
+							'elType'     => 'widget',
+							'widgetType' => 'html',
+							'settings'   => array( 'html' => $html ),
+							'elements'   => array(),
+							'isInner'    => false,
+							'isLocked'   => false,
+						),
+					),
+					'isInner'  => false,
+					'isLocked' => false,
+				);
+				array_unshift( $data, $hero );
+				update_post_meta( $post_id, '_elementor_data', wp_slash( wp_json_encode( $data ) ) );
+				if ( ! get_post_meta( $post_id, '_elementor_edit_mode', true ) ) {
+					update_post_meta( $post_id, '_elementor_edit_mode', 'builder' );
+				}
+				if ( class_exists( '\\Elementor\\Plugin' ) && isset( \Elementor\Plugin::$instance->files_manager ) ) {
+					\Elementor\Plugin::$instance->files_manager->clear_cache();
+				}
+				return array(
+					'post_id'    => $post_id,
+					'permalink'  => get_permalink( $post_id ),
+					'backup_key' => $backup_key,
+				);
+			},
+			'permission_callback' => 'ning_mcp_can_manage',
+			'meta'                => ning_mcp_mcp_meta( array( 'readonly' => false, 'destructive' => true, 'idempotent' => false ) ),
+		)
+	);
+
+
+	wp_register_ability(
 		'elementor-design/add-threejs-module',
 		array(
 			'label'       => 'Add Three.js Module',
@@ -1651,9 +1760,8 @@ async function init(){
     const {DRACOLoader}=await import("three/addons/loaders/DRACOLoader.js");
     const loader=new GLTFLoader();
     const draco=new DRACOLoader(); draco.setDecoderPath("https://www.gstatic.com/draco/v1/decoders/"); loader.setDRACOLoader(draco);
-    loader.load(MODEL,g=>{ mesh=g.scene; const box=new THREE.Box3().setFromObject(mesh); const size=box.getSize(new THREE.Vector3()).length(); const s=2.2/Math.max(size,0.001); mesh.scale.setScalar(s); const center=box.getCenter(new THREE.Vector3()).multiplyScalar(s); mesh.position.sub(center); group.add(mesh); },undefined,e=>{ console.warn("GLB load failed",e); fallback(); });
+    loader.load(MODEL,g=>{ const loaded=g.scene; const box=new THREE.Box3().setFromObject(loaded); const size=box.getSize(new THREE.Vector3()).length(); const s=2.2/Math.max(size,0.001); loaded.scale.setScalar(s); const center=box.getCenter(new THREE.Vector3()).multiplyScalar(s); loaded.position.sub(center); group.add(loaded); },undefined,e=>{ console.warn("GLB load failed",e); fallback(); });
   } else { fallback(); }
-  let mesh=null;
   let points=null;
   if({$particles_js}){
     const n=140, pos=new Float32Array(n*3);

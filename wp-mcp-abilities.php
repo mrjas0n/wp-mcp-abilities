@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP MCP Abilities
  * Description: Registers content-management abilities (posts, comments, media and WooCommerce variable products) exposed through the MCP Adapter default server.
- * Version:     1.3.5
+ * Version:     1.4.0
  * Requires at least: 6.9
  * Requires PHP: 7.4
  * Requires Plugins: mcp-adapter
@@ -108,6 +108,12 @@ add_filter( 'mcp_adapter_default_server_config', function ( $config ) {
 			'woocommerce/product-create',
 			'woocommerce/product-delete',
 			'woocommerce/product-update',
+			'theme-design/get-active-theme',
+			'theme-design/list-files',
+			'theme-design/read-file',
+			'theme-design/write-file',
+			'elementor-design/get-page-data',
+			'elementor-design/add-handmade-hero',
 		)
 	) ) );
 	return $config;
@@ -402,6 +408,20 @@ add_action( 'wp_abilities_api_categories_init', function () {
 		array(
 			'label'       => 'Ning Content Management',
 			'description' => 'Abilities for managing posts and comments on this site.',
+		)
+	);
+	wp_register_ability_category(
+		'theme-design',
+		array(
+			'label'       => 'Theme Design',
+			'description' => 'Abilities for managing theme files and design tokens in the active child theme.',
+		)
+	);
+	wp_register_ability_category(
+		'elementor-design',
+		array(
+			'label'       => 'Elementor Design',
+			'description' => 'Abilities for managing Elementor pages and handmade style modules.',
 		)
 	);
 } );
@@ -1129,6 +1149,380 @@ add_action( 'wp_abilities_api_init', function () {
 				'destructive' => true,
 				'idempotent' => true,
 			) ),
+		)
+	);
+
+	wp_register_ability(
+		'theme-design/get-active-theme',
+		array(
+			'label'       => 'Get Active Theme',
+			'description' => 'Returns active theme info: stylesheet, template, name, version, is_child, is_block_theme.',
+			'category'    => 'theme-design',
+			'output_schema' => array(
+				'type'       => 'object',
+				'properties' => array(
+					'stylesheet'     => array( 'type' => 'string' ),
+					'template'       => array( 'type' => 'string' ),
+					'name'           => array( 'type' => 'string' ),
+					'version'        => array( 'type' => 'string' ),
+					'is_child'       => array( 'type' => 'boolean' ),
+					'is_block_theme' => array( 'type' => 'boolean' ),
+				),
+			),
+			'execute_callback'    => function () {
+				$theme = wp_get_theme();
+				return array(
+					'stylesheet'     => $theme->get_stylesheet(),
+					'template'       => $theme->get_template(),
+					'name'           => $theme->get( 'Name' ),
+					'version'        => $theme->get( 'Version' ),
+					'is_child'       => is_child_theme(),
+					'is_block_theme' => function_exists( 'wp_is_block_theme' ) ? wp_is_block_theme() : false,
+				);
+			},
+			'permission_callback' => 'ning_mcp_can_manage',
+			'meta'                => ning_mcp_mcp_meta( array( 'readonly' => true, 'idempotent' => true ) ),
+		)
+	);
+
+	wp_register_ability(
+		'theme-design/list-files',
+		array(
+			'label'       => 'List Theme Files',
+			'description' => 'Lists files in the active child theme (syron-child) under allowed paths: style.css, functions.php, template-parts, woocommerce.',
+			'category'    => 'theme-design',
+			'input_schema' => array(
+				'type'                 => 'object',
+				'properties'           => array(
+					'subpath' => array( 'type' => 'string', 'description' => 'Optional subpath e.g. template-parts' ),
+				),
+				'additionalProperties' => false,
+			),
+			'output_schema' => array(
+				'type'  => 'array',
+				'items' => array( 'type' => 'string' ),
+			),
+			'execute_callback'    => function ( $input ) {
+				$theme_dir = get_stylesheet_directory();
+				$subpath   = isset( $input['subpath'] ) ? trim( $input['subpath'], '/' ) : '';
+				if ( '' !== $subpath && false !== strpos( $subpath, '..' ) ) {
+					return new WP_Error( 'ning_mcp_bad_path', 'Invalid subpath.' );
+				}
+				$target = '' === $subpath ? $theme_dir : $theme_dir . '/' . $subpath;
+				if ( ! file_exists( $target ) || ! is_dir( $target ) ) {
+					return new WP_Error( 'ning_mcp_not_found', 'Directory not found.' );
+				}
+				$files = array();
+				$iter  = new RecursiveIteratorIterator( new RecursiveDirectoryIterator( $target, FilesystemIterator::SKIP_DOTS ) );
+				foreach ( $iter as $file ) {
+					if ( $file->isFile() ) {
+						$rel = substr( $file->getPathname(), strlen( $theme_dir ) + 1 );
+						$rel = str_replace( '\\', '/', $rel );
+						if ( preg_match( '#^(style\.css|functions\.php|theme\.json|template-parts/.*\.php|woocommerce/.*\.php)$#', $rel ) ) {
+							$files[] = $rel;
+						}
+					}
+				}
+				sort( $files );
+				return $files;
+			},
+			'permission_callback' => 'ning_mcp_can_manage',
+			'meta'                => ning_mcp_mcp_meta( array( 'readonly' => true, 'idempotent' => true ) ),
+		)
+	);
+
+	wp_register_ability(
+		'theme-design/read-file',
+		array(
+			'label'       => 'Read Theme File',
+			'description' => 'Reads a single file from the active child theme. Allowed: style.css, functions.php, template-parts/*, woocommerce/*.',
+			'category'    => 'theme-design',
+			'input_schema' => array(
+				'type'                 => 'object',
+				'properties'           => array(
+					'path' => array( 'type' => 'string', 'description' => 'Relative path e.g. style.css' ),
+				),
+				'required'             => array( 'path' ),
+				'additionalProperties' => false,
+			),
+			'output_schema' => array(
+				'type'       => 'object',
+				'properties' => array(
+					'path'    => array( 'type' => 'string' ),
+					'content' => array( 'type' => 'string' ),
+				),
+			),
+			'execute_callback'    => function ( $input ) {
+				$rel = ltrim( $input['path'], '/' );
+				if ( false !== strpos( $rel, '..' ) || ! preg_match( '#^(style\.css|functions\.php|theme\.json|template-parts/.*\.php|woocommerce/.*\.php)$#', $rel ) ) {
+					return new WP_Error( 'ning_mcp_bad_path', 'Path not allowed.' );
+				}
+				$full = get_stylesheet_directory() . '/' . $rel;
+				if ( ! file_exists( $full ) ) {
+					return new WP_Error( 'ning_mcp_not_found', 'File not found.' );
+				}
+				return array( 'path' => $rel, 'content' => file_get_contents( $full ) );
+			},
+			'permission_callback' => 'ning_mcp_can_manage',
+			'meta'                => ning_mcp_mcp_meta( array( 'readonly' => true, 'idempotent' => true ) ),
+		)
+	);
+
+	wp_register_ability(
+		'theme-design/write-file',
+		array(
+			'label'       => 'Write Theme File',
+			'description' => 'Writes a file in the active child theme with automatic backup. Allowed paths same as read-file. Creates backups/ subfolder.',
+			'category'    => 'theme-design',
+			'input_schema' => array(
+				'type'                 => 'object',
+				'properties'           => array(
+					'path'    => array( 'type' => 'string', 'description' => 'Relative path e.g. style.css' ),
+					'content' => array( 'type' => 'string', 'description' => 'Full file content to write.' ),
+				),
+				'required'             => array( 'path', 'content' ),
+				'additionalProperties' => false,
+			),
+			'output_schema' => array(
+				'type'       => 'object',
+				'properties' => array(
+					'path'        => array( 'type' => 'string' ),
+					'backup_path' => array( 'type' => 'string' ),
+					'bytes'       => array( 'type' => 'integer' ),
+				),
+			),
+			'execute_callback'    => function ( $input ) {
+				if ( defined( 'DISALLOW_FILE_MODS' ) && DISALLOW_FILE_MODS ) {
+					return new WP_Error( 'ning_mcp_file_mods_disabled', 'File modifications are disabled via DISALLOW_FILE_MODS.' );
+				}
+				$rel = ltrim( $input['path'], '/' );
+				if ( false !== strpos( $rel, '..' ) || ! preg_match( '#^(style\.css|functions\.php|theme\.json|template-parts/.*\.php|woocommerce/.*\.php)$#', $rel ) ) {
+					return new WP_Error( 'ning_mcp_bad_path', 'Path not allowed.' );
+				}
+				$full = get_stylesheet_directory() . '/' . $rel;
+				$dir  = dirname( $full );
+				if ( ! file_exists( $dir ) ) {
+					wp_mkdir_p( $dir );
+				}
+				$backup_path = '';
+				if ( file_exists( $full ) ) {
+					$backup_dir = get_stylesheet_directory() . '/backups';
+					if ( ! file_exists( $backup_dir ) ) {
+						wp_mkdir_p( $backup_dir );
+						file_put_contents( $backup_dir . '/.htaccess', "Deny from all\n" );
+					}
+					$backup_path = $backup_dir . '/' . gmdate( 'Ymd-His' ) . '-' . str_replace( '/', '-', $rel ) . '.bak';
+					copy( $full, $backup_path );
+				}
+				$bytes = file_put_contents( $full, $input['content'] );
+				if ( false === $bytes ) {
+					return new WP_Error( 'ning_mcp_write_failed', 'Failed to write file.' );
+				}
+				if ( function_exists( 'wp_cache_flush' ) ) {
+					wp_cache_flush();
+				}
+				return array( 'path' => $rel, 'backup_path' => $backup_path ? str_replace( get_stylesheet_directory() . '/', '', $backup_path ) : '', 'bytes' => (int) $bytes );
+			},
+			'permission_callback' => 'ning_mcp_can_manage',
+			'meta'                => ning_mcp_mcp_meta( array( 'readonly' => false, 'destructive' => true, 'idempotent' => false ) ),
+		)
+	);
+
+	wp_register_ability(
+		'elementor-design/get-page-data',
+		array(
+			'label'       => 'Get Elementor Page Data',
+			'description' => 'Returns Elementor _elementor_data for a page (decoded) and edit mode.',
+			'category'    => 'elementor-design',
+			'input_schema' => array(
+				'type'                 => 'object',
+				'properties'           => array(
+					'post_id' => array( 'type' => 'integer', 'description' => 'Page/post ID.' ),
+				),
+				'required'             => array( 'post_id' ),
+				'additionalProperties' => false,
+			),
+			'output_schema' => array(
+				'type'       => 'object',
+				'properties' => array(
+					'post_id'   => array( 'type' => 'integer' ),
+					'has_data'  => array( 'type' => 'boolean' ),
+					'count'     => array( 'type' => 'integer' ),
+				),
+			),
+			'execute_callback'    => function ( $input ) {
+				$post_id = (int) $input['post_id'];
+				if ( ! get_post( $post_id ) ) {
+					return new WP_Error( 'ning_mcp_not_found', 'Post not found.' );
+				}
+				$raw = get_post_meta( $post_id, '_elementor_data', true );
+				$edit_mode = get_post_meta( $post_id, '_elementor_edit_mode', true );
+				$data = $raw ? json_decode( $raw, true ) : array();
+				return array(
+					'post_id'   => $post_id,
+					'has_data'  => ! empty( $raw ),
+					'edit_mode' => $edit_mode ? $edit_mode : '',
+					'count'     => is_array( $data ) ? count( $data ) : 0,
+					'title'     => get_the_title( $post_id ),
+					'permalink' => get_permalink( $post_id ),
+				);
+			},
+			'permission_callback' => 'ning_mcp_can_manage',
+			'meta'                => ning_mcp_mcp_meta( array( 'readonly' => true, 'idempotent' => true ) ),
+		)
+	);
+
+	wp_register_ability(
+		'elementor-design/add-handmade-hero',
+		array(
+			'label'       => 'Add Handmade Hero to Homepage',
+			'description' => 'Inserts a warm handmade-style hero section at the top of an Elementor page (front page by default). Includes heading, subtitle, CTA button and optional image. Backs up existing _elementor_data.',
+			'category'    => 'elementor-design',
+			'input_schema' => array(
+				'type'                 => 'object',
+				'properties'           => array(
+					'post_id'               => array( 'type' => 'integer', 'description' => 'Target page ID (defaults to front page if omitted).' ),
+					'title'                 => array( 'type' => 'string', 'description' => 'Hero heading, e.g. Handmade with Love' ),
+					'subtitle'              => array( 'type' => 'string', 'description' => 'Hero subtitle.' ),
+					'cta_text'              => array( 'type' => 'string', 'description' => 'Button text e.g. Shop New In' ),
+					'cta_url'               => array( 'type' => 'string', 'description' => 'Button URL.' ),
+					'image_attachment_id'   => array( 'type' => 'integer', 'description' => 'Optional image attachment ID for background.' ),
+				),
+				'required'             => array( 'title' ),
+				'additionalProperties' => false,
+			),
+			'output_schema' => array(
+				'type'       => 'object',
+				'properties' => array(
+					'post_id'    => array( 'type' => 'integer' ),
+					'permalink'  => array( 'type' => 'string' ),
+					'backup_key' => array( 'type' => 'string' ),
+				),
+			),
+			'execute_callback'    => function ( $input ) {
+				$post_id = ! empty( $input['post_id'] ) ? (int) $input['post_id'] : (int) get_option( 'page_on_front' );
+				if ( ! $post_id || ! get_post( $post_id ) ) {
+					return new WP_Error( 'ning_mcp_not_found', 'Target page not found.' );
+				}
+				$raw  = get_post_meta( $post_id, '_elementor_data', true );
+				$data = $raw ? json_decode( $raw, true ) : array();
+				if ( ! is_array( $data ) ) {
+					$data = array();
+				}
+				$backup_key = '_elementor_data_backup_' . gmdate( 'YmdHis' );
+				if ( $raw ) {
+					update_post_meta( $post_id, $backup_key, $raw );
+				}
+				$uid = function ( $prefix ) {
+					return $prefix . substr( md5( uniqid( (string) mt_rand(), true ) ), 0, 7 );
+				};
+				$title    = isset( $input['title'] ) ? $input['title'] : 'Handmade with Love';
+				$subtitle = isset( $input['subtitle'] ) ? $input['subtitle'] : 'Warm crochet for everyday cozy';
+				$cta_text = isset( $input['cta_text'] ) ? $input['cta_text'] : 'Shop New In';
+				$cta_url  = isset( $input['cta_url'] ) ? $input['cta_url'] : home_url( '/shop/' );
+				$image_url = '';
+				$image_id  = 0;
+				if ( ! empty( $input['image_attachment_id'] ) ) {
+					$image_id  = (int) $input['image_attachment_id'];
+					$image_url = wp_get_attachment_url( $image_id );
+				}
+				$hero = array(
+					'id'       => $uid( 'hero' ),
+					'elType'   => 'container',
+					'settings' => array(
+						'content_width'        => 'boxed',
+						'boxed_width'          => array( 'unit' => 'px', 'size' => 1280, 'sizes' => array() ),
+						'min_height'           => array( 'unit' => 'vh', 'size' => 72, 'sizes' => array() ),
+						'padding'              => array( 'unit' => 'px', 'top' => '80', 'right' => '24', 'bottom' => '80', 'left' => '24', 'isLinked' => false ),
+						'background_background'=> 'classic',
+						'background_color'     => '#FDF6EE',
+						'border_radius'        => array( 'unit' => 'px', 'top' => '24', 'right' => '24', 'bottom' => '24', 'left' => '24', 'isLinked' => true ),
+						'flex_direction'       => 'column',
+						'align_items'          => 'center',
+						'justify_content'      => 'center',
+						'gap'                  => array( 'unit' => 'px', 'size' => '24', 'sizes' => array() ),
+					),
+					'elements' => array(
+						array(
+							'id'         => $uid( 'h1' ),
+							'elType'     => 'widget',
+							'widgetType' => 'heading',
+							'settings'   => array(
+								'title'                      => $title,
+								'header_size'                => 'h1',
+								'align'                      => 'center',
+								'typography_typography'      => 'custom',
+								'typography_font_size'       => array( 'unit' => 'px', 'size' => 48, 'sizes' => array() ),
+								'typography_font_weight'     => '700',
+								'typography_font_family'     => 'Caveat',
+								'text_color'                 => '#5B4A3F',
+							),
+							'elements'   => array(),
+							'isInner'    => false,
+							'isLocked'   => false,
+						),
+						array(
+							'id'         => $uid( 'sub' ),
+							'elType'     => 'widget',
+							'widgetType' => 'text-editor',
+							'settings'   => array(
+								'editor'                     => '<p style="text-align:center;">' . esc_html( $subtitle ) . '</p>',
+								'align'                      => 'center',
+								'text_color'                 => '#8B7355',
+								'typography_typography'      => 'custom',
+								'typography_font_family'     => 'Inter',
+							),
+							'elements'   => array(),
+							'isInner'    => false,
+							'isLocked'   => false,
+						),
+						array(
+							'id'         => $uid( 'btn' ),
+							'elType'     => 'widget',
+							'widgetType' => 'button',
+							'settings'   => array(
+								'text'           => $cta_text,
+								'link'           => array( 'url' => $cta_url, 'is_external' => false, 'nofollow' => false ),
+								'align'          => 'center',
+								'background_color'=> '#A67C52',
+								'button_text_color'=> '#FFFFFF',
+								'border_radius'  => array( 'unit' => 'px', 'top' => '999', 'right' => '999', 'bottom' => '999', 'left' => '999', 'isLinked' => true ),
+								'typography_typography' => 'custom',
+								'typography_font_weight'=> '600',
+								'text_padding'   => array( 'unit' => 'px', 'top' => '16', 'right' => '32', 'bottom' => '16', 'left' => '32', 'isLinked' => false ),
+							),
+							'elements'   => array(),
+							'isInner'    => false,
+							'isLocked'   => false,
+						),
+					),
+					'isInner'  => false,
+					'isLocked' => false,
+				);
+				if ( $image_url ) {
+					$hero['settings']['background_image'] = array( 'url' => $image_url, 'id' => $image_id );
+					$hero['settings']['background_position'] = 'center center';
+					$hero['settings']['background_size'] = 'cover';
+					$hero['settings']['background_overlay_background'] = 'classic';
+					$hero['settings']['background_overlay_color'] = 'rgba(253,246,238,0.85)';
+				}
+				array_unshift( $data, $hero );
+				update_post_meta( $post_id, '_elementor_data', wp_json_encode( $data ) );
+				if ( ! get_post_meta( $post_id, '_elementor_edit_mode', true ) ) {
+					update_post_meta( $post_id, '_elementor_edit_mode', 'builder' );
+				}
+				if ( class_exists( '\\Elementor\\Plugin' ) && isset( \Elementor\Plugin::$instance->files_manager ) ) {
+					\Elementor\Plugin::$instance->files_manager->clear_cache();
+				}
+				return array(
+					'post_id'    => $post_id,
+					'permalink'  => get_permalink( $post_id ),
+					'backup_key' => $backup_key,
+					'preview_url'=> add_query_arg( 'elementor_library', '', get_permalink( $post_id ) ),
+				);
+			},
+			'permission_callback' => 'ning_mcp_can_manage',
+			'meta'                => ning_mcp_mcp_meta( array( 'readonly' => false, 'destructive' => true, 'idempotent' => false ) ),
 		)
 	);
 } );

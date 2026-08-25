@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP MCP Abilities
  * Description: Registers content-management abilities (posts, comments, media and WooCommerce variable products) exposed through the MCP Adapter default server.
- * Version:     1.3.2
+ * Version:     1.3.3
  * Requires at least: 6.9
  * Requires PHP: 7.4
  * Requires Plugins: mcp-adapter
@@ -265,7 +265,8 @@ function ning_mcp_prepare_attribute( $name, $options ) {
 	if ( ! function_exists( 'wc_attribute_taxonomy_name' ) ) {
 		return new WP_Error( 'ning_mcp_wc_missing', 'WooCommerce is not active.' );
 	}
-	$slug     = strtolower( preg_replace( '/^pa_/', '', sanitize_title( $name ) ) );
+	$raw_name = trim( preg_replace( '/^pa_/i', '', $name ) );
+	$slug     = function_exists( 'wc_sanitize_taxonomy_name' ) ? wc_sanitize_taxonomy_name( $raw_name ) : sanitize_title( $raw_name );
 	$taxonomy = wc_attribute_taxonomy_name( $slug );
 
 	$attribute_id = 0;

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP MCP Abilities
  * Description: Registers content-management abilities (posts, comments, media and WooCommerce variable products) exposed through the MCP Adapter default server.
- * Version:     1.3.0
+ * Version:     1.3.1
  * Requires at least: 6.9
  * Requires PHP: 7.4
  * Requires Plugins: mcp-adapter
@@ -17,6 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 const WP_MCP_ABILITIES_UPDATE_URL = 'https://raw.githubusercontent.com/mrjas0n/wp-mcp-abilities/main/update.json';
 const WP_MCP_ABILITIES_REPO_URL   = 'https://github.com/mrjas0n/wp-mcp-abilities';
+const WP_MCP_ABILITIES_UPDATE_TTL = 600;
 
 add_filter( 'pre_set_site_transient_update_plugins', function ( $transient ) {
 	if ( empty( $transient->checked ) ) {
@@ -37,7 +38,7 @@ add_filter( 'pre_set_site_transient_update_plugins', function ( $transient ) {
 				$cache = $data;
 			}
 		}
-		set_transient( 'wp_mcp_abilities_update_check', $cache, 12 * HOUR_IN_SECONDS );
+		set_transient( 'wp_mcp_abilities_update_check', $cache, WP_MCP_ABILITIES_UPDATE_TTL );
 	}
 	if ( empty( $cache['version'] ) ) {
 		return $transient;
@@ -291,7 +292,7 @@ function ning_mcp_prepare_attribute( $name, $options ) {
 				'show_ui'      => true,
 				'show_in_rest' => true,
 				'query_var'    => true,
-				'rewrite'      => array( 'slug' => wc_slugify( $name ) ),
+				'rewrite'      => array( 'slug' => function_exists( 'wc_slugify' ) ? wc_slugify( $name ) : sanitize_title( $name ) ),
 				'public'       => false,
 			)
 		);

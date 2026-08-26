@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP MCP Abilities
  * Description: Registers content-management abilities (posts, comments, media and WooCommerce variable products) exposed through the MCP Adapter default server.
- * Version:     1.6.0
+ * Version:     1.6.1
  * Requires at least: 6.9
  * Requires PHP: 7.4
  * Requires Plugins: mcp-adapter
@@ -117,6 +117,7 @@ add_filter( 'mcp_adapter_default_server_config', function ( $config ) {
 			'elementor-design/add-html-hero',
 			'elementor-design/add-threejs-module',
 			'elementor-design/add-gallery-module',
+			'elementor-design/editor-visibility',
 		)
 	) ) );
 	return $config;
@@ -2092,6 +2093,61 @@ HTMLEOF;
 			},
 			'permission_callback' => 'ning_mcp_can_manage',
 			'meta'                => ning_mcp_mcp_meta( array( 'readonly' => false, 'destructive' => true, 'idempotent' => false ) ),
+		)
+	);
+} );
+
+/**
+ * Hide locked (Pro) widgets and empty Pro categories from the Elementor
+ * editor panel. Toggle via wp_mcp_hide_locked_widgets option.
+ */
+add_action( 'elementor/editor/after_enqueue_scripts', function () {
+	if ( ! get_option( 'wp_mcp_hide_locked_widgets', 1 ) ) {
+		return;
+	}
+	$css = '#elementor-panel .elementor-element-wrapper.elementor-element--promotion{display:none!important}'
+		. '#elementor-panel .elementor-panel-category-title:has(.elementor-panel-heading-promotion){display:none!important}'
+		. '#elementor-panel [id^="elementor-panel-category-"]:not(:has(.elementor-element-wrapper:not(.elementor-element--promotion))){display:none!important}';
+	echo '<style id="wp-mcp-hide-locked-widgets">' . $css . '</style>' . "\n";
+} );
+
+add_action( 'wp_abilities_api_init', function () {
+	wp_register_ability(
+		'elementor-design/editor-visibility',
+		array(
+			'label'       => 'Editor Visibility',
+			'description' => 'Controls whether locked (Pro) widgets and fully-locked categories are hidden from the Elementor editor panel. action=get returns the current state; action=set toggles it via the enabled flag.',
+			'category'    => 'elementor-design',
+			'input_schema' => array(
+				'type'                 => 'object',
+				'properties'           => array(
+					'action'  => array( 'type' => 'string', 'enum' => array( 'get', 'set' ), 'default' => 'get', 'description' => 'get returns state; set updates the enabled flag.' ),
+					'enabled' => array( 'type' => 'boolean', 'description' => 'Required when action=set. true hides locked widgets.' ),
+				),
+				'additionalProperties' => false,
+			),
+			'output_schema' => array(
+				'type'       => 'object',
+				'properties' => array(
+					'enabled'           => array( 'type' => 'boolean' ),
+					'hidden_categories' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
+					'note'              => array( 'type' => 'string' ),
+				),
+			),
+			'execute_callback'    => function ( $input ) {
+				$key    = 'wp_mcp_hide_locked_widgets';
+				$action = isset( $input['action'] ) ? $input['action'] : 'get';
+				if ( 'set' === $action ) {
+					update_option( $key, ! empty( $input['enabled'] ) ? 1 : 0 );
+				}
+				return array(
+					'enabled'           => (bool) get_option( $key, 1 ),
+					'hidden_categories' => array( 'Pro', 'Site', 'Single', 'WooCommerce', 'Hello+', 'Atomic Elements' ),
+					'note'              => 'Editor panel hides .elementor-element--promotion widgets and categories whose widgets are all locked.',
+				);
+			},
+			'permission_callback' => 'ning_mcp_can_manage',
+			'meta'                => ning_mcp_mcp_meta( array( 'readonly' => false, 'destructive' => false, 'idempotent' => false ) ),
 		)
 	);
 } );

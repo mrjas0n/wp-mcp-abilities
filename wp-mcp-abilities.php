@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP MCP Abilities
  * Description: Registers content-management abilities (posts, comments, media and WooCommerce variable products) exposed through the MCP Adapter default server.
- * Version:     1.5.3
+ * Version:     1.6.0
  * Requires at least: 6.9
  * Requires PHP: 7.4
  * Requires Plugins: mcp-adapter
@@ -116,6 +116,7 @@ add_filter( 'mcp_adapter_default_server_config', function ( $config ) {
 			'elementor-design/add-handmade-hero',
 			'elementor-design/add-html-hero',
 			'elementor-design/add-threejs-module',
+			'elementor-design/add-gallery-module',
 		)
 	) ) );
 	return $config;
@@ -1840,5 +1841,257 @@ HTMLEOF;
 			'meta'                => ning_mcp_mcp_meta( array( 'readonly' => false, 'destructive' => false, 'idempotent' => false ) ),
 		)
 	);
-} );
 
+	wp_register_ability(
+		'elementor-design/add-gallery-module',
+		array(
+			'label'       => 'Add Interactive Gallery',
+			'description' => 'Inserts a 3D ring gallery of published WooCommerce products into an Elementor page (free HTML widget). Cards use product images, drag to rotate with inertia, click opens product. Placeholder cards fill missing images. Lazy, responsive, reduced-motion grid fallback. Backs up page data.',
+			'category'    => 'elementor-design',
+			'input_schema' => array(
+				'type'                 => 'object',
+				'properties'           => array(
+					'title'          => array( 'type' => 'string', 'description' => 'Template/section title.' ),
+					'post_id'        => array( 'type' => 'integer', 'description' => 'Target page ID (defaults to front page).' ),
+					'position'       => array( 'type' => 'string', 'enum' => array( 'top', 'after_hero' ), 'default' => 'after_hero', 'description' => 'Insert at page top or after the first container (hero).' ),
+					'height'         => array( 'type' => 'integer', 'minimum' => 360, 'maximum' => 520, 'default' => 460, 'description' => 'Canvas height px.' ),
+					'count'          => array( 'type' => 'integer', 'minimum' => 4, 'maximum' => 10, 'default' => 8, 'description' => 'Max products on the ring.' ),
+					'rotation_speed' => array( 'type' => 'number', 'minimum' => 0.1, 'maximum' => 2, 'default' => 0.5, 'description' => 'Auto-rotation speed.' ),
+					'palette'        => array( 'type' => 'object', 'properties' => array( 'primary' => array( 'type' => 'string', 'description' => 'Hex e.g. #A67C52' ), 'bg' => array( 'type' => 'string', 'description' => 'Hex background e.g. #FDF6EE' ) ), 'description' => 'Optional colors.' ),
+				),
+				'required'             => array( 'title' ),
+				'additionalProperties' => false,
+			),
+			'output_schema' => array(
+				'type'       => 'object',
+				'properties' => array(
+					'post_id'     => array( 'type' => 'integer' ),
+					'backup_key'  => array( 'type' => 'string' ),
+					'cards'       => array( 'type' => 'integer' ),
+					'placeholders'=> array( 'type' => 'integer' ),
+				),
+			),
+			'execute_callback'    => function ( $input ) {
+				if ( ! function_exists( 'wc_get_products' ) ) {
+					return new WP_Error( 'ning_mcp_wc_missing', 'WooCommerce is not active.' );
+				}
+				$title  = isset( $input['title'] ) ? sanitize_text_field( $input['title'] ) : 'Interactive Gallery';
+				$post_id = ! empty( $input['post_id'] ) ? (int) $input['post_id'] : (int) get_option( 'page_on_front' );
+				if ( ! $post_id || ! get_post( $post_id ) ) {
+					return new WP_Error( 'ning_mcp_not_found', 'Target page not found.' );
+				}
+				$position = ( isset( $input['position'] ) && 'top' === $input['position'] ) ? 'top' : 'after_hero';
+				$height = isset( $input['height'] ) ? max( 360, min( 520, (int) $input['height'] ) ) : 460;
+				$count  = isset( $input['count'] ) ? max( 4, min( 10, (int) $input['count'] ) ) : 8;
+				$speed  = isset( $input['rotation_speed'] ) ? max( 0.1, min( 2, (float) $input['rotation_speed'] ) ) : 0.5;
+				$primary = '#A67C52';
+				$bg      = '#FDF6EE';
+				if ( isset( $input['palette']['primary'] ) && preg_match( '/^#[0-9a-fA-F]{6}$/', $input['palette']['primary'] ) ) {
+					$primary = $input['palette']['primary'];
+				}
+				if ( isset( $input['palette']['bg'] ) && preg_match( '/^#[0-9a-fA-F]{6}$/', $input['palette']['bg'] ) ) {
+					$bg = $input['palette']['bg'];
+				}
+
+				$products = wc_get_products( array(
+					'status'   => 'publish',
+					'limit'    => $count,
+					'orderby'  => 'date',
+					'order'    => 'DESC',
+				) );
+				$cards = array();
+				foreach ( $products as $product ) {
+					$img_id = $product->get_image_id();
+					$img    = $img_id ? wp_get_attachment_url( $img_id ) : '';
+					$cards[] = array(
+						'name' => $product->get_name(),
+						'url'  => get_permalink( $product->get_id() ),
+						'img'  => $img ? $img : '',
+					);
+				}
+				$placeholders = 0;
+				$ring_total   = max( 6, count( $cards ) );
+				$shop_url     = home_url( '/shop/' );
+				while ( count( $cards ) < $ring_total ) {
+					$cards[] = array( 'name' => 'Handmade Piece', 'url' => $shop_url, 'img' => '' );
+					$placeholders++;
+				}
+				$cards = array_slice( $cards, 0, $ring_total );
+
+				$raw  = get_post_meta( $post_id, '_elementor_data', true );
+				$data = $raw ? json_decode( $raw, true ) : array();
+				if ( ! is_array( $data ) ) {
+					$data = array();
+				}
+				$backup_key = '_elementor_data_backup_' . gmdate( 'YmdHis' );
+				if ( $raw ) {
+					update_post_meta( $post_id, $backup_key, $raw );
+				}
+				$uid = function ( $p ) {
+					return $p . substr( md5( uniqid( (string) mt_rand(), true ) ), 0, 7 );
+				};
+				$rootId      = $uid( 'gal' );
+				$cards_js    = wp_json_encode( array_values( $cards ) );
+				$speed_js    = wp_json_encode( $speed );
+				$primary_js  = wp_json_encode( $primary );
+				$bg_js       = wp_json_encode( $bg );
+
+				$grid_html = '';
+				foreach ( $cards as $card ) {
+					$grid_html .= '<a href="' . esc_url( $card['url'] ) . '" target="_blank" rel="noopener">';
+					if ( $card['img'] ) {
+						$grid_html .= '<img src="' . esc_url( $card['img'] ) . '" alt="' . esc_attr( $card['name'] ) . '" loading="lazy" />';
+					} else {
+						$grid_html .= '<span class="hh-g-ph">' . esc_html( $card['name'] ) . '</span>';
+					}
+					$grid_html .= '</a>';
+				}
+
+				$html = <<<HTMLEOF
+<div id="{$rootId}" style="position:relative;height:{$height}px;border-radius:24px;overflow:hidden;background:linear-gradient(180deg,{$bg} 0%,#F5E9DA 100%);"><div class="hh-shadow"></div><canvas style="display:block;width:100%;height:100%;cursor:grab;"></canvas><div class="hh-grid" hidden>{$grid_html}</div><div class="hh-notice">3D renders on the live site — drag to rotate</div><noscript><p style="text-align:center;padding:40px;color:#8B7355;">Enable JavaScript to view the gallery</p></noscript></div>
+<style>#{$rootId} .hh-shadow{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);width:280px;height:30px;background:radial-gradient(ellipse at center,rgba(91,74,63,0.26),rgba(91,74,63,0) 70%);filter:blur(2px);}#{$rootId} .hh-notice{position:absolute;top:12px;right:12px;background:rgba(91,74,63,0.88);color:#FDF6EE;font:12px/1.4 -apple-system,sans-serif;padding:6px 10px;border-radius:8px;pointer-events:none;}#{$rootId} .hh-grid:not([hidden]){position:absolute;inset:0;display:flex;flex-wrap:wrap;gap:14px;align-content:center;justify-content:center;padding:20px;}#{$rootId} .hh-grid a{width:132px;text-decoration:none;}#{$rootId} .hh-grid img,#{$rootId} .hh-grid .hh-g-ph{display:block;width:132px;height:165px;object-fit:cover;border-radius:16px;border:2px dashed {$primary};background:#FDF6EE;color:#8B7355;font:14px/1.5 -apple-system,sans-serif;text-align:center;padding:8px;box-sizing:border-box;}</style>
+<script async src="https://unpkg.com/es-module-shims@1.8.0/dist/es-module-shims.js"></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="module">
+const root=document.getElementById("{$rootId}");
+if(!root) throw new Error("gallery root missing");
+const canvas=root.querySelector("canvas");
+const notice=root.querySelector(".hh-notice"); if(notice) notice.remove();
+const CARDS={$cards_js};
+const reduced=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const grid=root.querySelector(".hh-grid");
+if(reduced && grid){ grid.hidden=false; canvas.remove(); const sh=root.querySelector(".hh-shadow"); if(sh) sh.remove(); }
+else {
+  let started=false;
+  const start=()=>{ if(started) return; started=true; init().catch(err=>{ const d=document.createElement("div"); d.style.cssText="position:absolute;left:12px;bottom:12px;background:rgba(140,40,40,0.92);color:#fff;font:12px sans-serif;padding:6px 10px;border-radius:8px;max-width:80%;z-index:5;"; d.textContent="3D failed: "+String(err&&err.message||err); root.appendChild(d); }); };
+  const obs=new IntersectionObserver(es=>{ es.forEach(e=>{ if(e.isIntersecting){ start(); obs.disconnect(); } }); },{rootMargin:"250px"});
+  obs.observe(root);
+  setTimeout(()=>{ if(!started) start(); },3000);
+}
+async function init(){
+  const THREE=await import("three");
+  const {RoomEnvironment}=await import("three/addons/environments/RoomEnvironment.js");
+  const N=CARDS.length;
+  const cardW=1.35, cardH=1.69;
+  const radius=Math.max(2.5,(cardW/2)/Math.tan(Math.PI/N)+0.6);
+  const renderer=new THREE.WebGLRenderer({canvas:canvas,antialias:true,alpha:true});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.5));
+  renderer.toneMapping=THREE.ACESFilmicToneMapping;
+  const scene=new THREE.Scene();
+  const pmrem=new THREE.PMREMGenerator(renderer);
+  scene.environment=pmrem.fromScene(new RoomEnvironment(),0.04).texture;
+  const camera=new THREE.PerspectiveCamera(42,root.clientWidth/{$height},0.1,100);
+  const baseZ=radius+2.3;
+  camera.position.set(0,0.25,baseZ);
+  scene.add(new THREE.AmbientLight(0xFFF2E2,0.45));
+  const key=new THREE.DirectionalLight(0xFFE8CF,1.0); key.position.set(3,5,3); scene.add(key);
+  const rim=new THREE.DirectionalLight(0xD9A679,0.55); rim.position.set(-3,2,-3); scene.add(rim);
+  function rr(g,x,y,w,h,r){ g.beginPath(); g.moveTo(x+r,y); g.arcTo(x+w,y,x+w,y+h,r); g.lineTo(x+w,y+h-r); g.arcTo(x+w,y+h,x,y+h,r); g.lineTo(x,y+h-r); g.arcTo(x,y,x+w,y,r); g.closePath(); }
+  function cardTexture(card){
+    const c=document.createElement("canvas"); c.width=512; c.height=640;
+    const g=c.getContext("2d");
+    g.fillStyle="#FDF6EE"; rr(g,0,0,512,640,36); g.fill();
+    g.strokeStyle="{$primary_js}".replace(/"/g,""); g.lineWidth=6; g.setLineDash([16,10]); rr(g,16,16,480,608,26); g.stroke(); g.setLineDash([]);
+    const tex=new THREE.CanvasTexture(c); tex.anisotropy=4;
+    if(card.img){
+      const im=new Image(); im.crossOrigin="anonymous";
+      im.onload=()=>{ g.save(); rr(g,34,34,444,470,20); g.clip(); const s=Math.max(444/im.width,470/im.height); const w=im.width*s, h=im.height*s; g.drawImage(im,34+(444-w)/2,34+(470-h)/2,w,h); g.restore(); tex.needsUpdate=true; };
+      im.src=card.img;
+    } else {
+      g.fillStyle="#F5E9DA"; rr(g,34,34,444,470,20); g.fill();
+      g.strokeStyle="#D9A679"; g.lineWidth=10; g.lineCap="round";
+      for(let y=90;y<470;y+=46){ g.beginPath(); g.moveTo(64,y); g.quadraticCurveTo(256,y+26,448,y); g.stroke(); }
+      tex.needsUpdate=true;
+    }
+    g.fillStyle="rgba(91,74,63,0.93)"; rr(g,26,532,460,76,18); g.fill();
+    g.fillStyle="#FDF6EE"; g.font="600 30px -apple-system,Segoe UI,sans-serif"; g.textAlign="center"; g.textBaseline="middle";
+    let nm=card.name||"Handmade"; if(nm.length>18) nm=nm.slice(0,17)+"…";
+    g.fillText(nm,256,571);
+    tex.needsUpdate=true;
+    return tex;
+  }
+  const group=new THREE.Group(); scene.add(group);
+  const meshes=[];
+  for(let i=0;i<N;i++){
+    const m=new THREE.Mesh(new THREE.PlaneGeometry(cardW,cardH),new THREE.MeshBasicMaterial({map:cardTexture(CARDS[i]),transparent:true,side:THREE.DoubleSide}));
+    const th=i*2*Math.PI/N;
+    m.position.set(Math.sin(th)*radius,0,Math.cos(th)*radius);
+    m.rotation.y=th;
+    m.userData.idx=i;
+    group.add(m); meshes.push(m);
+  }
+  let points=null;
+  const n=120, pos=new Float32Array(n*3);
+  for(let i=0;i<n;i++){ pos[i*3]=(Math.random()-0.5)*8; pos[i*3+1]=(Math.random()-0.5)*4; pos[i*3+2]=(Math.random()-0.5)*5; }
+  const pg=new THREE.BufferGeometry(); pg.setAttribute("position",new THREE.BufferAttribute(pos,3));
+  const sc=document.createElement("canvas"); sc.width=sc.height=64;
+  const sg=sc.getContext("2d"); const gr=sg.createRadialGradient(32,32,0,32,32,30);
+  gr.addColorStop(0,"rgba(217,166,121,0.9)"); gr.addColorStop(1,"rgba(217,166,121,0)");
+  sg.fillStyle=gr; sg.fillRect(0,0,64,64);
+  points=new THREE.Points(pg,new THREE.PointsMaterial({size:0.08,map:new THREE.CanvasTexture(sc),transparent:true,opacity:0.5,depthWrite:false,color:0xD9A679}));
+  scene.add(points);
+  let dragging=false,lastX=0,vel=0,moved=0;
+  const el=renderer.domElement; el.style.touchAction="pan-y";
+  el.addEventListener("pointerdown",e=>{ dragging=true; lastX=e.clientX; moved=0; el.setPointerCapture(e.pointerId); });
+  el.addEventListener("pointermove",e=>{ if(!dragging) return; const dx=e.clientX-lastX; lastX=e.clientX; moved+=Math.abs(dx); group.rotation.y+=dx*0.005; vel=dx*0.005; });
+  el.addEventListener("pointerup",e=>{ dragging=false; if(moved<6){ const rect=el.getBoundingClientRect(); const mx=((e.clientX-rect.left)/rect.width)*2-1; const my=-((e.clientY-rect.top)/rect.height)*2+1; const rc=new THREE.Raycaster(); rc.setFromCamera({x:mx,y:my},camera); const hit=rc.intersectObjects(meshes)[0]; if(hit){ const card=CARDS[hit.object.userData.idx]; if(card&&card.url) window.open(card.url,"_blank"); } } });
+  function resize(){ const w=root.clientWidth||1; renderer.setSize(w,{$height},false); camera.aspect=w/{$height}; camera.updateProjectionMatrix(); camera.position.z=(camera.aspect<0.8)?baseZ+1.4:baseZ; }
+  window.addEventListener("resize",resize); resize();
+  const clock=new THREE.Clock();
+  let raf=null;
+  function frame(){
+    raf=requestAnimationFrame(frame);
+    const t=clock.getElapsedTime();
+    if(!dragging){ vel*=0.94; group.rotation.y+=vel+{$speed_js}*0.0012; }
+    if(points) points.rotation.y=t*0.02;
+    renderer.render(scene,camera);
+  }
+  const vio=new IntersectionObserver(es=>{ es.forEach(e=>{ if(e.isIntersecting){ if(raf===null){ clock.getDelta(); frame(); } } else { if(raf!==null){ cancelAnimationFrame(raf); raf=null; } } }); },{threshold:0.05});
+  vio.observe(root);
+}
+</script>
+HTMLEOF;
+				$gallery = array(
+					'id'       => $uid( 'galw' ),
+					'elType'   => 'container',
+					'settings' => array(
+						'content_width' => 'boxed',
+						'boxed_width'   => array( 'unit' => 'px', 'size' => 1280, 'sizes' => array() ),
+						'padding'       => array( 'unit' => 'px', 'top' => '24', 'right' => '0', 'bottom' => '24', 'left' => '0', 'isLinked' => false ),
+					),
+					'elements' => array(
+						array(
+							'id'         => $uid( 'el' ),
+							'elType'     => 'widget',
+							'widgetType' => 'html',
+							'settings'   => array( 'html' => $html ),
+							'elements'   => array(),
+							'isInner'    => false,
+							'isLocked'   => false,
+						),
+					),
+					'isInner'  => false,
+					'isLocked' => false,
+				);
+				$index = ( 'top' === $position ) ? 0 : min( 1, count( $data ) );
+				array_splice( $data, $index, 0, array( $gallery ) );
+				update_post_meta( $post_id, '_elementor_data', wp_slash( wp_json_encode( $data ) ) );
+				if ( ! get_post_meta( $post_id, '_elementor_edit_mode', true ) ) {
+					update_post_meta( $post_id, '_elementor_edit_mode', 'builder' );
+				}
+				if ( class_exists( '\\Elementor\\Plugin' ) && isset( \Elementor\Plugin::$instance->files_manager ) ) {
+					\Elementor\Plugin::$instance->files_manager->clear_cache();
+				}
+				return array(
+					'post_id'      => $post_id,
+					'backup_key'   => $backup_key,
+					'position'     => $position,
+					'cards'        => count( $cards ) - $placeholders,
+					'placeholders' => $placeholders,
+				);
+			},
+			'permission_callback' => 'ning_mcp_can_manage',
+			'meta'                => ning_mcp_mcp_meta( array( 'readonly' => false, 'destructive' => true, 'idempotent' => false ) ),
+		)
+	);
+} );

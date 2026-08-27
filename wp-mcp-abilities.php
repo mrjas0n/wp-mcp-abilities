@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP MCP Abilities
  * Description: Registers content-management abilities (posts, comments, media and WooCommerce variable products) exposed through the MCP Adapter default server.
- * Version:     1.7.0
+ * Version:     1.7.1
  * Requires at least: 6.9
  * Requires PHP: 7.4
  * Requires Plugins: mcp-adapter
@@ -2871,4 +2871,28 @@ WPMPTPL;
 			'meta'                => ning_mcp_mcp_meta( array( 'readonly' => false, 'destructive' => false, 'idempotent' => true ) ),
 		)
 	);
+} );
+
+// v1.7.1 — [elementor-template] shortcode (Elementor 4.2.3 does not ship it; needed for Shortcode-widget and manual placement of pattern templates).
+add_action( 'init', function () {
+	if ( shortcode_exists( 'elementor-template' ) ) {
+		return;
+	}
+	add_shortcode( 'elementor-template', function ( $atts ) {
+		$atts = shortcode_atts( array( 'id' => 0 ), $atts, 'elementor-template' );
+		$id   = (int) $atts['id'];
+		if ( ! $id || 'elementor_library' !== get_post_type( $id ) ) {
+			return '';
+		}
+		if ( class_exists( '\Elementor\Plugin' ) && isset( \Elementor\Plugin::$instance->frontend ) ) {
+			$frontend = \Elementor\Plugin::$instance->frontend;
+			if ( method_exists( $frontend, 'get_builder_content_for_display' ) ) {
+				return $frontend->get_builder_content_for_display( $id );
+			}
+			if ( method_exists( $frontend, 'get_builder_content' ) ) {
+				return $frontend->get_builder_content( $id );
+			}
+		}
+		return '';
+	} );
 } );

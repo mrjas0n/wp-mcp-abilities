@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP MCP Abilities
  * Description: Registers content-management abilities (posts, comments, media and WooCommerce variable products) exposed through the MCP Adapter default server.
- * Version:     1.7.1
+ * Version:     1.7.3
  * Requires at least: 6.9
  * Requires PHP: 7.4
  * Requires Plugins: mcp-adapter
@@ -14,6 +14,8 @@
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
+
+require_once __DIR__ . '/includes/early-defs.php';
 
 const WP_MCP_ABILITIES_UPDATE_URL = 'https://raw.githubusercontent.com/mrjas0n/wp-mcp-abilities/main/update.json';
 const WP_MCP_ABILITIES_REPO_URL   = 'https://github.com/mrjas0n/wp-mcp-abilities';
@@ -2152,6 +2154,7 @@ add_action( 'wp_abilities_api_init', function () {
 		)
 	);
 
+	if (!function_exists('ning_mcp_design_tokens')) {
 	// ─────────────────────────────────────────────────────────────
 	// v1.7.0 — Design tokens + pattern library (Elementor component trees)
 	// ─────────────────────────────────────────────────────────────
@@ -2799,6 +2802,7 @@ WPMPTPL;
 		}
 		return $created;
 	}
+	}
 
 	wp_register_ability(
 		'elementor-design/build-pattern-library',
@@ -2872,6 +2876,80 @@ WPMPTPL;
 		)
 	);
 } );
+
+// v1.7.3 — Custom Elements category (Rivax-style, bottom of panel).
+add_action( 'elementor/elements/categories_registered', function ( $elements_manager ) {
+	$elements_manager->add_category(
+		'custom-elements',
+		array(
+			'title' => esc_html__( 'Custom Elements', 'wp-mcp-abilities' ),
+			'icon'  => 'eicon-apps',
+		)
+	);
+} );
+
+// v1.7.2 — Pattern picker widget (hidden, kept for BC; use Custom Elements now).
+add_action( 'elementor/widgets/register', function ( $widgets_manager ) {
+	if ( ! class_exists( '\Elementor\Widget_Base' ) ) {
+		return;
+	}
+	require_once __DIR__ . '/includes/widgets/class-ning-pattern-widget.php';
+	$widgets_manager->register( new \Ning_Pattern_Widget() );
+	require_once __DIR__ . '/includes/widgets/class-ning-custom-elements.php';
+	$widgets_manager->register( new \Ning_Banner_Widget() );
+	$widgets_manager->register( new \Ning_Features_Widget() );
+	$widgets_manager->register( new \Ning_Cta_Banner_Widget() );
+	$widgets_manager->register( new \Ning_Testimonials_Widget() );
+	$widgets_manager->register( new \Ning_Stats_Widget() );
+	$widgets_manager->register( new \Ning_Newsletter_Widget() );
+	$widgets_manager->register( new \Ning_Marquee_Widget() );
+	$widgets_manager->register( new \Ning_Divider_Widget() );
+	$widgets_manager->register( new \Ning_Gallery_Widget() );
+	$widgets_manager->register( new \Ning_Product_Cards_Widget() );
+} );
+
+add_action( 'wp_ajax_ning_pattern_preview', function () {
+	check_ajax_referer( 'ning_pattern_preview' );
+	if ( ! current_user_can( 'edit_posts' ) ) {
+		wp_die( '', '', array( 'response' => 403 ) );
+	}
+	$logical = isset( $_GET['pattern'] ) ? sanitize_key( wp_unslash( $_GET['pattern'] ) ) : '';
+	if ( ! function_exists( 'ning_mcp_pattern_definitions' ) ) {
+		wp_die( 'not ready', '', array( 'response' => 500 ) );
+	}
+	$defs = ning_mcp_pattern_definitions();
+	if ( ! isset( $defs[ $logical ] ) ) {
+		wp_die( 'unknown pattern', '', array( 'response' => 404 ) );
+	}
+	$title = 'Pattern: ' . $defs[ $logical ]['title'];
+	$posts = get_posts( array(
+		'post_type'      => 'elementor_library',
+		'title'          => $title,
+		'posts_per_page' => 1,
+		'post_status'    => 'any',
+	) );
+	if ( empty( $posts ) ) {
+		wp_die( 'not built', '', array( 'response' => 404 ) );
+	}
+	$real_id = (int) $posts[0]->ID;
+	if ( class_exists( '\Elementor\Plugin' ) && isset( \Elementor\Plugin::$instance->frontend ) ) {
+		$frontend = \Elementor\Plugin::$instance->frontend;
+		if ( method_exists( $frontend, 'get_builder_content_for_display' ) ) {
+			echo $frontend->get_builder_content_for_display( $real_id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			wp_die();
+		}
+		if ( method_exists( $frontend, 'get_builder_content' ) ) {
+			echo $frontend->get_builder_content( $real_id ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			wp_die();
+		}
+	}
+	wp_die( '', '', array( 'response' => 500 ) );
+} );
+
+add_action( 'elementor/editor/after_enqueue_scripts', function () {
+	$nonce = wp_create_nonce( 'ning_pattern_preview' );
+	echo '<script>window.ningPatternNonce=' . wp_json_encode( $nonce ) . ';window.ajaxurl=' . wp_json_encode( admin_url( 'admin-ajax.php' ) ) . ';</script>' . "\n";
+}, 20 );
 
 // v1.7.1 — [elementor-template] shortcode (Elementor 4.2.3 does not ship it; needed for Shortcode-widget and manual placement of pattern templates).
 add_action( 'init', function () {

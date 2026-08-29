@@ -204,7 +204,7 @@ if (!defined('ABSPATH')) exit;
 				'image_url' => array( 'type' => 'string', 'default' => '' ),
 			),
 			'build'       => function ( $p, $t ) {
-				$img = $p['image_url'] ? $p['image_url'] : 'https://placehold.co/600x720/FDF6EE/A67C52?text=Hero+Image';
+				$img = $p['image_url'] ? $p['image_url'] : ( function_exists( 'ning_mcp_pexels_fallback_url' ) ? ning_mcp_pexels_fallback_url( $p['title'] ?: 'handmade crochet', 'https://placehold.co/600x720/FDF6EE/A67C52?text=Hero+Image' ) : 'https://placehold.co/600x720/FDF6EE/A67C52?text=Hero+Image' );
 				return array(
 					ning_mcp_t_container(
 						ning_mcp_section_base( $t, null, array( 'flex_direction' => 'row', 'align_items' => 'center' ) ),
@@ -234,7 +234,7 @@ if (!defined('ABSPATH')) exit;
 				'image_url' => array( 'type' => 'string', 'default' => '' ),
 			),
 			'build'       => function ( $p, $t ) {
-				$img = $p['image_url'] ? $p['image_url'] : 'https://placehold.co/600x720/FDF6EE/A67C52?text=Hero+Image';
+				$img = $p['image_url'] ? $p['image_url'] : ( function_exists( 'ning_mcp_pexels_fallback_url' ) ? ning_mcp_pexels_fallback_url( $p['title'] ?: 'handmade crochet', 'https://placehold.co/600x720/FDF6EE/A67C52?text=Hero+Image' ) : 'https://placehold.co/600x720/FDF6EE/A67C52?text=Hero+Image' );
 				return array(
 					ning_mcp_t_container(
 						ning_mcp_section_base( $t, null, array( 'flex_direction' => 'row', 'align_items' => 'center' ) ),
@@ -493,8 +493,17 @@ if (!defined('ABSPATH')) exit;
 			),
 			'build'       => function ( $p, $t ) {
 				$urls = array_values( array_filter( array_map( 'trim', explode( '|', $p['images'] ) ) ) );
-				if ( empty( $urls ) ) {
-					$urls = array( 'https://placehold.co/400x400/FDF6EE/A67C52?text=Gallery' );
+				$is_default_placehold = false;
+				if ( ! empty( $urls ) ) {
+					$is_default_placehold = true;
+					foreach ( $urls as $u ) { if ( strpos( $u, 'placehold.co' ) === false ) { $is_default_placehold = false; break; } }
+				}
+				if ( empty( $urls ) || $is_default_placehold ) {
+					if ( function_exists( 'ning_mcp_pexels_fallback_ids' ) ) {
+						$urls = ning_mcp_pexels_fallback_ids( 'handmade gallery', 4, 'https://placehold.co/400x400/FDF6EE/A67C52?text=Gallery' );
+					} else {
+						$urls = array( 'https://placehold.co/400x400/FDF6EE/A67C52?text=Gallery' );
+					}
 				}
 				$imgs = '';
 				foreach ( $urls as $u ) {
@@ -557,10 +566,11 @@ root.appendChild(card);
 })();
 </script>
 WPMPTPL;
+				$ph_url = function_exists( 'ning_mcp_pexels_fallback_url' ) ? ning_mcp_pexels_fallback_url( 'handmade product', 'https://placehold.co/600x600/FDF6EE/A67C52?text=Product' ) : 'https://placehold.co/600x600/FDF6EE/A67C52?text=Product';
 				$html = strtr( $tpl, array(
 					'{COUNT}'    => (string) $count,
 					'{HOME}'     => esc_url( untrailingslashit( home_url() ) ),
-					'{PH}'       => 'https://placehold.co/600x600/FDF6EE/A67C52?text=Product',
+					'{PH}'       => $ph_url,
 					'{PRIMARY}'  => esc_attr( $t['palette']['primary'] ),
 					'{ACCENT}'   => esc_attr( $t['palette']['accent'] ),
 					'{BG}'       => esc_attr( $t['palette']['bg'] ),

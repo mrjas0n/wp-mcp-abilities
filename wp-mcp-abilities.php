@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP MCP Abilities
  * Description: Registers content-management abilities (posts, comments, media and WooCommerce variable products) exposed through the MCP Adapter default server.
- * Version:     1.7.4
+ * Version:     1.7.5
  * Requires at least: 6.9
  * Requires PHP: 7.4
  * Requires Plugins: mcp-adapter
@@ -16,6 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 require_once __DIR__ . '/includes/early-defs.php';
+require_once __DIR__ . '/includes/pexels-helpers.php';
 
 const WP_MCP_ABILITIES_UPDATE_URL = 'https://raw.githubusercontent.com/mrjas0n/wp-mcp-abilities/main/update.json';
 const WP_MCP_ABILITIES_REPO_URL   = 'https://github.com/mrjas0n/wp-mcp-abilities';
@@ -121,6 +122,7 @@ add_filter( 'mcp_adapter_default_server_config', function ( $config ) {
 			'elementor-design/add-gallery-module',
 			'elementor-design/editor-visibility',
 			'elementor-design/build-pattern-library',
+			'ning-content/search-pexels',
 		)
 	) ) );
 	return $config;
@@ -2804,6 +2806,43 @@ WPMPTPL;
 	}
 	}
 
+add_action( 'wp_abilities_api_init', function () {
+	wp_register_ability(
+		'ning-content/search-pexels',
+		array(
+			'label'       => 'Search Pexels',
+			'description' => 'Search Pexels for stock photos by query (uses Authorization token from wp_mcp_pexels_api_key). Returns photos with url, photographer, avg_color. Images are cached via transient and can be sideloaded via upload-media.',
+			'category'    => 'ning-content',
+			'input_schema' => array(
+				'type'       => 'object',
+				'properties' => array(
+					'query'       => array( 'type' => 'string', 'description' => 'Search query, e.g. handmade crochet, yarn texture' ),
+					'per_page'    => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 15, 'default' => 4 ),
+					'orientation' => array( 'type' => 'string', 'enum' => array( 'landscape', 'portrait', 'square' ), 'description' => 'Optional orientation filter' ),
+				),
+				'required'             => array( 'query' ),
+				'additionalProperties' => false,
+			),
+			'output_schema' => array(
+				'type'       => 'object',
+				'properties' => array(
+					'photos' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array( 'url' => array( 'type' => 'string' ), 'photographer' => array( 'type' => 'string' ), 'avg_color' => array( 'type' => 'string' ) ) ) ),
+				),
+			),
+			'execute_callback' => function ( $input ) {
+				$query = isset( $input['query'] ) ? (string) $input['query'] : '';
+				$per_page = isset( $input['per_page'] ) ? (int) $input['per_page'] : 4;
+				$orientation = isset( $input['orientation'] ) ? (string) $input['orientation'] : '';
+				$photos = ning_mcp_pexels_search( $query, $per_page, $orientation );
+				return array( 'photos' => $photos );
+			},
+			'permission_callback' => 'ning_mcp_can_manage',
+			'meta'                => ning_mcp_mcp_meta( array( 'readonly' => true, 'destructive' => false, 'idempotent' => true ) ),
+		)
+	);
+} );
+
+add_action( 'wp_abilities_api_init', function () {
 	wp_register_ability(
 		'elementor-design/build-pattern-library',
 		array(
@@ -2875,6 +2914,7 @@ WPMPTPL;
 			'meta'                => ning_mcp_mcp_meta( array( 'readonly' => false, 'destructive' => false, 'idempotent' => true ) ),
 		)
 	);
+} );
 } );
 
 // v1.7.3 — Custom Elements category (Rivax-style, bottom of panel).

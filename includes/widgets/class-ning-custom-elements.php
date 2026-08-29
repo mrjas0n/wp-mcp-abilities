@@ -51,7 +51,7 @@ class Ning_Banner_Widget extends Ning_Custom_Base {
 		$subtitle = $s['subtitle'] ?? '';
 		$cta_text = $s['cta_text'] ?? 'Shop New In';
 		$cta_url = isset($s['cta_url']['url']) ? $s['cta_url']['url'] : '#';
-		$img = isset($s['image']['url']) && $s['image']['url'] ? $s['image']['url'] : 'https://placehold.co/600x720/FDF6EE/A67C52?text=Hero+Image';
+		$img = isset($s['image']['url']) && $s['image']['url'] ? $s['image']['url'] : ( function_exists( 'ning_mcp_pexels_fallback_url' ) ? ning_mcp_pexels_fallback_url( $title ?: 'handmade crochet', 'https://placehold.co/600x720/FDF6EE/A67C52?text=Hero+Image' ) : 'https://placehold.co/600x720/FDF6EE/A67C52?text=Hero+Image' );
 		$pad = $t['spacing']['section'] . 'px';
 		$gap = $t['spacing']['gap'] . 'px';
 		if ('hero-minimal' === $layout) {
@@ -133,15 +133,20 @@ class Ning_Cta_Banner_Widget extends Ning_Custom_Base {
 		$this->add_control('subtitle', array('label'=>esc_html__('Subtitle','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::TEXTAREA,'rows'=>2,'default'=>esc_html__('Be the first to know about new arrivals.','wp-mcp-abilities')));
 		$this->add_control('cta_text', array('label'=>esc_html__('Button Text','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::TEXT,'default'=>esc_html__('Subscribe','wp-mcp-abilities')));
 		$this->add_control('cta_url', array('label'=>esc_html__('Button Link','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::URL,'default'=>array('url'=>'#')));
+		$this->add_control('background_image', array('label'=>esc_html__('Background Image','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::MEDIA,'default'=>array('url'=>''),'media_types'=>array('image'),'dynamic'=>array('active'=>true)));
 		$this->end_controls_section();
 	}
 	protected function render() {
 		$s=$this->get_settings_for_display(); $t=$this->tokens();
 		$title=$s['title']??'Join Our Community'; $subtitle=$s['subtitle']??''; $cta_text=$s['cta_text']??'Subscribe'; $cta_url=$s['cta_url']['url']??'#';
-		echo '<div style="max-width:1200px;margin:0 auto;padding:64px 24px;background:'.esc_attr($t['palette']['primary']).';border-radius:24px;text-align:center;color:#fff;">';
+		$bg_url = isset($s['background_image']['url']) ? $s['background_image']['url'] : '';
+		$bg_style = $bg_url ? 'background:url('.esc_url($bg_url).') center/cover;' : 'background:'.esc_attr($t['palette']['primary']).';';
+		echo '<div style="max-width:1200px;margin:0 auto;padding:64px 24px;'.$bg_style.'border-radius:24px;text-align:center;color:#fff;position:relative;overflow:hidden;">';
+		if ($bg_url) echo '<div style="position:absolute;inset:0;background:rgba(0,0,0,.35);"></div><div style="position:relative;">';
 		echo '<h2 style="font-family:'.esc_attr($t['typography']['heading_font']).';font-size:32px;margin:0 0 12px;color:#fff;">'.esc_html($title).'</h2>';
 		echo '<p style="font-family:'.esc_attr($t['typography']['body_font']).';color:rgba(255,255,255,.92);margin:0 0 20px;">'.esc_html($subtitle).'</p>';
 		echo '<a href="'.esc_url($cta_url).'" style="display:inline-block;padding:14px 28px;background:#fff;color:'.esc_attr($t['palette']['primary']).';border-radius:999px;text-decoration:none;font-weight:600;">'.esc_html($cta_text).'</a>';
+		if ($bg_url) echo '</div>';
 		echo '</div>';
 	}
 }
@@ -263,12 +268,19 @@ class Ning_Divider_Widget extends Ning_Custom_Base {
 	public function get_icon() { return 'eicon-divider'; }
 	protected function register_controls() {
 		$this->start_controls_section('section_content', array('label'=>esc_html__('Content','wp-mcp-abilities')));
-		$this->add_control('note', array('type'=>\Elementor\Controls_Manager::RAW_HTML,'raw'=>esc_html__('Decorative star divider.','wp-mcp-abilities')));
+		$this->add_control('line_color', array('label'=>esc_html__('Line Color','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::COLOR,'default'=>'#E8DDD0'));
+		$this->add_control('icon_color', array('label'=>esc_html__('Icon Color','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::COLOR,'default'=>'#D9A679'));
+		$this->add_control('gap', array('label'=>esc_html__('Gap','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::SLIDER,'size_units'=>array('px'),'range'=>array('px'=>array('min'=>0,'max'=>60)),'default'=>array('size'=>14,'unit'=>'px')));
+		$this->add_control('max_width', array('label'=>esc_html__('Max Width','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::SLIDER,'size_units'=>array('px','%'),'range'=>array('px'=>array('min'=>100,'max'=>800),'%'=>array('min'=>10,'max'=>100)),'default'=>array('size'=>420,'unit'=>'px')));
 		$this->end_controls_section();
 	}
 	protected function render() {
-		$t=$this->tokens();
-		echo '<div style="display:flex;align-items:center;gap:14px;max-width:420px;margin:24px auto;"><span style="flex:1;height:1px;background:linear-gradient(90deg,transparent,'.esc_attr($t['palette']['border']).')"></span><svg width="16" height="16" viewBox="0 0 24 24" fill="'.esc_attr($t['palette']['accent']).'"><path d="M12 0l2.6 9.4L24 12l-9.4 2.6L12 24l-2.6-9.4L0 12l9.4-2.6z"/></svg><span style="flex:1;height:1px;background:linear-gradient(270deg,transparent,'.esc_attr($t['palette']['border']).')"></span></div>';
+		$s=$this->get_settings_for_display(); $t=$this->tokens();
+		$line_color = $s['line_color'] ?? $t['palette']['border'];
+		$icon_color = $s['icon_color'] ?? $t['palette']['accent'];
+		$gap = isset($s['gap']['size']) ? $s['gap']['size'] . ($s['gap']['unit'] ?? 'px') : '14px';
+		$max_width = isset($s['max_width']['size']) ? $s['max_width']['size'] . ($s['max_width']['unit'] ?? 'px') : '420px';
+		echo '<div style="display:flex;align-items:center;gap:'.esc_attr($gap).';max-width:'.esc_attr($max_width).';margin:24px auto;"><span style="flex:1;height:1px;background:linear-gradient(90deg,transparent,'.esc_attr($line_color).')"></span><svg width="16" height="16" viewBox="0 0 24 24" fill="'.esc_attr($icon_color).'"><path d="M12 0l2.6 9.4L24 12l-9.4 2.6L12 24l-2.6-9.4L0 12l9.4-2.6z"/></svg><span style="flex:1;height:1px;background:linear-gradient(270deg,transparent,'.esc_attr($line_color).')"></span></div>';
 	}
 }
 
@@ -285,7 +297,12 @@ class Ning_Gallery_Widget extends Ning_Custom_Base {
 		$s=$this->get_settings_for_display(); $t=$this->tokens();
 		$gallery = $s['images'] ?? array();
 		if (empty($gallery)) {
-			$gallery = array(array('url'=>'https://placehold.co/400x400/FDF6EE/A67C52?text=1'),array('url'=>'https://placehold.co/400x400/FDF6EE/A67C52?text=2'),array('url'=>'https://placehold.co/400x400/FDF6EE/A67C52?text=3'),array('url'=>'https://placehold.co/400x400/FDF6EE/A67C52?text=4'));
+			if (function_exists('ning_mcp_pexels_fallback_ids')) {
+				$urls = ning_mcp_pexels_fallback_ids('handmade gallery', 4, 'https://placehold.co/400x400/FDF6EE/A67C52?text=Gallery');
+				$gallery = array_map(function($u){ return array('url'=>$u); }, $urls);
+			} else {
+				$gallery = array(array('url'=>'https://placehold.co/400x400/FDF6EE/A67C52?text=1'),array('url'=>'https://placehold.co/400x400/FDF6EE/A67C52?text=2'),array('url'=>'https://placehold.co/400x400/FDF6EE/A67C52?text=3'),array('url'=>'https://placehold.co/400x400/FDF6EE/A67C52?text=4'));
+			}
 		}
 		echo '<div style="max-width:1200px;margin:0 auto;padding:'.esc_attr($t['spacing']['section']).'px 24px;"><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:'.esc_attr($t['spacing']['gap']).'px;">';
 		foreach ($gallery as $img) {
@@ -309,8 +326,9 @@ class Ning_Product_Cards_Widget extends Ning_Custom_Base {
 	protected function render() {
 		$s=$this->get_settings_for_display(); $t=$this->tokens();
 		$count = max(1,min(8,intval($s['count'] ?? 4)));
+		$ph_url = function_exists('ning_mcp_pexels_fallback_url') ? ning_mcp_pexels_fallback_url('handmade product', 'https://placehold.co/600x600/FDF6EE/A67C52?text=Product') : 'https://placehold.co/600x600/FDF6EE/A67C52?text=Product';
 		echo '<div class="wpmp-products" data-count="'.esc_attr($count).'" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:20px;max-width:1200px;margin:0 auto;padding:'.esc_attr($t['spacing']['section']).'px 24px;font-family:'.esc_attr($t['typography']['body_font']).';"><div style="grid-column:1/-1;text-align:center;color:'.esc_attr($t['palette']['muted']).';padding:40px 0;">Loading products…</div></div>';
 		echo '<style>.wpmp-products .wpmp-card{background:#fff;border:1px solid '.esc_attr($t['palette']['border']).';border-radius:'.esc_attr($t['radius']['card']).'px;overflow:hidden;display:flex;flex-direction:column;text-decoration:none;color:inherit;}.wpmp-products img{width:100%;aspect-ratio:1;object-fit:cover;display:block;}.wpmp-body{padding:14px;} .wpmp-price{color:'.esc_attr($t['palette']['primary']).';font-weight:600;}</style>';
-		echo '<script>(function(){var root=document.currentScript.previousElementSibling.previousElementSibling; if(!root) root=document.querySelector(".wpmp-products"); if(!root) return; var n=parseInt(root.getAttribute("data-count")||"4",10); var url="'.esc_url(home_url()).'/wp-json/wc/store/v1/products?per_page="+n; fetch(url).then(function(r){return r.ok?r.json():[]}).then(function(items){if(!items||!items.length){root.innerHTML=\'<div style="grid-column:1/-1;text-align:center;color:#8A7A6A;padding:30px 0;">No products yet.</div>\';return;} root.innerHTML=""; items.forEach(function(p){var img=p.images&&p.images[0]?p.images[0].src:""; var price=p.prices&&p.prices.price?(parseInt(p.prices.price,10)/Math.pow(10,p.prices.currency_decimals||2)).toFixed(2):null; var cur=p.prices&&p.prices.currency_symbol?p.prices.currency_symbol:"$"; var card=document.createElement("a");card.className="wpmp-card";card.href=p.permalink||"#"; var im=document.createElement("img");im.loading="lazy";im.alt=p.name||"";im.src=img||"https://placehold.co/600x600/FDF6EE/A67C52?text=Product"; card.appendChild(im); var body=document.createElement("div");body.className="wpmp-body"; var h=document.createElement("h3");h.textContent=p.name||""; var pr=document.createElement("span");pr.className="wpmp-price";pr.textContent=null===price?"":cur+price; body.appendChild(h);body.appendChild(pr);card.appendChild(body); root.appendChild(card);});}).catch(function(){root.innerHTML=\'<div style="grid-column:1/-1;text-align:center;color:#8A7A6A;padding:30px 0;">Could not load products.</div>\';});})();</script>';
+		echo '<script>(function(){var root=document.currentScript.previousElementSibling.previousElementSibling; if(!root) root=document.querySelector(".wpmp-products"); if(!root) return; var n=parseInt(root.getAttribute("data-count")||"4",10); var url="'.esc_url(home_url()).'/wp-json/wc/store/v1/products?per_page="+n; fetch(url).then(function(r){return r.ok?r.json():[]}).then(function(items){if(!items||!items.length){root.innerHTML=\'<div style="grid-column:1/-1;text-align:center;color:#8A7A6A;padding:30px 0;">No products yet.</div>\';return;} root.innerHTML=""; items.forEach(function(p){var img=p.images&&p.images[0]?p.images[0].src:""; var price=p.prices&&p.prices.price?(parseInt(p.prices.price,10)/Math.pow(10,p.prices.currency_decimals||2)).toFixed(2):null; var cur=p.prices&&p.prices.currency_symbol?p.prices.currency_symbol:"$"; var card=document.createElement("a");card.className="wpmp-card";card.href=p.permalink||"#"; var im=document.createElement("img");im.loading="lazy";im.alt=p.name||"";im.src=img||"'.esc_js($ph_url).'"; card.appendChild(im); var body=document.createElement("div");body.className="wpmp-body"; var h=document.createElement("h3");h.textContent=p.name||""; var pr=document.createElement("span");pr.className="wpmp-price";pr.textContent=null===price?"":cur+price; body.appendChild(h);body.appendChild(pr);card.appendChild(body); root.appendChild(card);});}).catch(function(){root.innerHTML=\'<div style="grid-column:1/-1;text-align:center;color:#8A7A6A;padding:30px 0;">Could not load products.</div>\';});})();</script>';
 	}
 }

@@ -318,17 +318,103 @@ class Ning_Product_Cards_Widget extends Ning_Custom_Base {
 	public function get_name() { return 'ning-product-cards'; }
 	public function get_title() { return esc_html__( 'Product Cards', 'wp-mcp-abilities' ); }
 	public function get_icon() { return 'eicon-products'; }
+	public function get_script_depends() { return array( 'ning-product-cards' ); }
 	protected function register_controls() {
 		$this->start_controls_section('section_content', array('label'=>esc_html__('Content','wp-mcp-abilities')));
-		$this->add_control('count', array('label'=>esc_html__('Products to show','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::NUMBER,'min'=>1,'max'=>8,'step'=>1,'default'=>4));
+		$this->add_control('source', array(
+			'label'=>esc_html__('Source','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::SELECT,'default'=>'latest',
+			'options'=>array('latest'=>esc_html__('Latest','wp-mcp-abilities'),'featured'=>esc_html__('Featured','wp-mcp-abilities'),'on_sale'=>esc_html__('On Sale','wp-mcp-abilities'),'by_category'=>esc_html__('By Category','wp-mcp-abilities'),'manual'=>esc_html__('Manual Selection','wp-mcp-abilities')),
+		));
+		$categories = array();
+		$terms = get_terms(array('taxonomy'=>'product_cat','hide_empty'=>false));
+		if (!is_wp_error($terms) && is_array($terms)) { foreach ($terms as $term) { $categories[$term->term_id] = $term->name . ' (' . $term->count . ')'; } }
+		$this->add_control('category_ids', array(
+			'label'=>esc_html__('Categories','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::SELECT2,'multiple'=>true,'label_block'=>true,'options'=>$categories,
+			'condition'=>array('source'=>'by_category'),
+		));
+		$products = array();
+		$all_products = wc_get_products(array('limit'=>50,'status'=>'publish','orderby'=>'date','order'=>'DESC'));
+		foreach ($all_products as $prod) { $products[$prod->get_id()] = $prod->get_name() . ' (#' . $prod->get_id() . ')'; }
+		$this->add_control('product_ids', array(
+			'label'=>esc_html__('Products','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::SELECT2,'multiple'=>true,'label_block'=>true,'options'=>$products,
+			'condition'=>array('source'=>'manual'),
+		));
+		$this->add_control('count', array('label'=>esc_html__('Products to show','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::NUMBER,'min'=>1,'max'=>12,'step'=>1,'default'=>4,'condition'=>array('source!'=>'manual')));
+		$this->add_control('orderby', array('label'=>esc_html__('Order By','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::SELECT,'default'=>'date','options'=>array('date'=>esc_html__('Date','wp-mcp-abilities'),'title'=>esc_html__('Title','wp-mcp-abilities'),'price'=>esc_html__('Price','wp-mcp-abilities'),'popularity'=>esc_html__('Popularity','wp-mcp-abilities'),'rating'=>esc_html__('Rating','wp-mcp-abilities'),'rand'=>esc_html__('Random','wp-mcp-abilities')),'condition'=>array('source!'=>'manual')));
+		$this->add_control('order', array('label'=>esc_html__('Order','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::SELECT,'default'=>'DESC','options'=>array('DESC'=>esc_html__('DESC','wp-mcp-abilities'),'ASC'=>esc_html__('ASC','wp-mcp-abilities')),'condition'=>array('source!'=>'manual')));
+		$this->end_controls_section();
+		$this->start_controls_section('section_style', array('label'=>esc_html__('Style','wp-mcp-abilities'),'tab'=>\Elementor\Controls_Manager::TAB_STYLE));
+		$this->add_control('show_image', array('label'=>esc_html__('Show Image','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::SWITCHER,'label_on'=>esc_html__('Show','wp-mcp-abilities'),'label_off'=>esc_html__('Hide','wp-mcp-abilities'),'return_value'=>'yes','default'=>'yes'));
+		$this->add_control('show_price', array('label'=>esc_html__('Show Price','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::SWITCHER,'label_on'=>esc_html__('Show','wp-mcp-abilities'),'label_off'=>esc_html__('Hide','wp-mcp-abilities'),'return_value'=>'yes','default'=>'yes'));
 		$this->end_controls_section();
 	}
 	protected function render() {
 		$s=$this->get_settings_for_display(); $t=$this->tokens();
-		$count = max(1,min(8,intval($s['count'] ?? 4)));
+		$source = $s['source'] ?? 'latest';
+		$count = max(1,min(12,intval($s['count'] ?? 4)));
+		$category_ids = isset($s['category_ids']) && is_array($s['category_ids']) ? array_map('intval',$s['category_ids']) : array();
+		$product_ids = isset($s['product_ids']) && is_array($s['product_ids']) ? array_map('intval',$s['product_ids']) : array();
+		$orderby = $s['orderby'] ?? 'date';
+		$order = $s['order'] ?? 'DESC';
+		$show_image = ($s['show_image'] ?? 'yes') === 'yes';
+		$show_price = ($s['show_price'] ?? 'yes') === 'yes';
 		$ph_url = function_exists('ning_mcp_pexels_fallback_url') ? ning_mcp_pexels_fallback_url('handmade product', 'https://placehold.co/600x600/FDF6EE/A67C52?text=Product') : 'https://placehold.co/600x600/FDF6EE/A67C52?text=Product';
-		echo '<div class="wpmp-products" data-count="'.esc_attr($count).'" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:20px;max-width:1200px;margin:0 auto;padding:'.esc_attr($t['spacing']['section']).'px 24px;font-family:'.esc_attr($t['typography']['body_font']).';"><div style="grid-column:1/-1;text-align:center;color:'.esc_attr($t['palette']['muted']).';padding:40px 0;">Loading products…</div></div>';
-		echo '<style>.wpmp-products .wpmp-card{background:#fff;border:1px solid '.esc_attr($t['palette']['border']).';border-radius:'.esc_attr($t['radius']['card']).'px;overflow:hidden;display:flex;flex-direction:column;text-decoration:none;color:inherit;}.wpmp-products img{width:100%;aspect-ratio:1;object-fit:cover;display:block;}.wpmp-body{padding:14px;} .wpmp-price{color:'.esc_attr($t['palette']['primary']).';font-weight:600;}</style>';
-		echo '<script>(function(){var root=document.currentScript.previousElementSibling.previousElementSibling; if(!root) root=document.querySelector(".wpmp-products"); if(!root) return; var n=parseInt(root.getAttribute("data-count")||"4",10); var url="'.esc_url(home_url()).'/wp-json/wc/store/v1/products?per_page="+n; fetch(url).then(function(r){return r.ok?r.json():[]}).then(function(items){if(!items||!items.length){root.innerHTML=\'<div style="grid-column:1/-1;text-align:center;color:#8A7A6A;padding:30px 0;">No products yet.</div>\';return;} root.innerHTML=""; items.forEach(function(p){var img=p.images&&p.images[0]?p.images[0].src:""; var price=p.prices&&p.prices.price?(parseInt(p.prices.price,10)/Math.pow(10,p.prices.currency_decimals||2)).toFixed(2):null; var cur=p.prices&&p.prices.currency_symbol?p.prices.currency_symbol:"$"; var card=document.createElement("a");card.className="wpmp-card";card.href=p.permalink||"#"; var im=document.createElement("img");im.loading="lazy";im.alt=p.name||"";im.src=img||"'.esc_js($ph_url).'"; card.appendChild(im); var body=document.createElement("div");body.className="wpmp-body"; var h=document.createElement("h3");h.textContent=p.name||""; var pr=document.createElement("span");pr.className="wpmp-price";pr.textContent=null===price?"":cur+price; body.appendChild(h);body.appendChild(pr);card.appendChild(body); root.appendChild(card);});}).catch(function(){root.innerHTML=\'<div style="grid-column:1/-1;text-align:center;color:#8A7A6A;padding:30px 0;">Could not load products.</div>\';});})();</script>';
+		// Build query args
+		$args = array('limit'=>$count,'status'=>'publish','orderby'=>$orderby,'order'=>$order);
+		if ('manual' === $source && !empty($product_ids)) {
+			$args['include'] = $product_ids;
+			$args['orderby'] = 'post__in';
+		} elseif ('by_category' === $source && !empty($category_ids)) {
+			$args['category'] = $category_ids;
+		} elseif ('featured' === $source) {
+			$args['featured'] = true;
+		} elseif ('on_sale' === $source) {
+			// WC doesn't have direct on_sale query, filter after
+			$args['limit'] = 50;
+		}
+		$products = wc_get_products($args);
+		if ('on_sale' === $source) {
+			$products = array_filter($products, function($p){ return $p->is_on_sale(); });
+			$products = array_slice($products, 0, $count);
+		}
+		// Fallback to Store API style JS if no products found and not manual
+		$has_products = !empty($products);
+		$data_cats = !empty($category_ids) ? implode(',', $category_ids) : '';
+		$data_source = esc_attr($source);
+		$data_orderby = esc_attr($orderby);
+		echo '<div class="wpmp-products" data-count="'.esc_attr($count).'" data-source="'.$data_source.'" data-cats="'.esc_attr($data_cats).'" data-orderby="'.$data_orderby.'" data-ph="'.esc_attr($ph_url).'" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:20px;max-width:1200px;margin:0 auto;padding:'.esc_attr($t['spacing']['section']).'px 24px;font-family:'.esc_attr($t['typography']['body_font']).';">';
+		if ($has_products) {
+			foreach ($products as $product) {
+				$img_url = '';
+				if ($show_image) {
+					$img_id = $product->get_image_id();
+					if ($img_id) { $img_url = wp_get_attachment_url($img_id); }
+					if (!$img_url && function_exists('ning_mcp_pexels_fallback_url')) { $img_url = ning_mcp_pexels_fallback_url($product->get_name() ?: 'handmade product', $ph_url); }
+					if (!$img_url) $img_url = $ph_url;
+				}
+				$price_html = '';
+				if ($show_price) {
+					$price_html = $product->get_price_html();
+					if (!$price_html) {
+						$price = $product->get_price();
+						if ($price !== '') { $price_html = wc_price($price); }
+					}
+				}
+				echo '<a class="wpmp-card" href="'.esc_url($product->get_permalink()).'" style="background:#fff;border:1px solid '.esc_attr($t['palette']['border']).';border-radius:'.esc_attr($t['radius']['card']).'px;overflow:hidden;display:flex;flex-direction:column;text-decoration:none;color:inherit;">';
+				if ($show_image && $img_url) echo '<img src="'.esc_url($img_url).'" alt="'.esc_attr($product->get_name()).'" style="width:100%;aspect-ratio:1;object-fit:cover;display:block;">';
+				echo '<div class="wpmp-body" style="padding:14px;"><h3 style="margin:0 0 6px;font-family:'.esc_attr($t['typography']['heading_font']).';font-size:17px;color:'.esc_attr($t['palette']['text']).';">'.esc_html($product->get_name()).'</h3>';
+				if ($show_price && $price_html) echo '<div class="wpmp-price" style="color:'.esc_attr($t['palette']['primary']).';font-weight:600;">'.$price_html.'</div>';
+				echo '</div></a>';
+			}
+		} else {
+			// No server products, show loading placeholder for JS fallback (for latest/manual empty)
+			echo '<div style="grid-column:1/-1;text-align:center;color:'.esc_attr($t['palette']['muted']).';padding:40px 0;">'.esc_html__('Loading products…','wp-mcp-abilities').'</div>';
+		}
+		echo '</div>';
+		echo '<style>.wpmp-products .wpmp-card{transition:transform .3s ease,box-shadow .3s ease}.wpmp-products .wpmp-card:hover{transform:translateY(-4px);box-shadow:'.esc_attr($t['shadow']['card']).'}</style>';
+		if (!$has_products && 'manual' !== $source) {
+			// JS fallback for cases where PHP had no products (e.g., Store API has more)
+			echo '<script>(function(){var root=document.currentScript&&document.currentScript.previousElementSibling&&document.currentScript.previousElementSibling.previousElementSibling?document.currentScript.previousElementSibling.previousElementSibling:document.querySelector(".wpmp-products"); if(!root||root.dataset.source==="manual") return; var n=parseInt(root.getAttribute("data-count")||"4",10); var cats=root.getAttribute("data-cats")||""; var url="'.esc_url(home_url()).'/wp-json/wc/store/v1/products?per_page="+n; if(cats) url+="&category="+encodeURIComponent(cats); fetch(url,{credentials:"same-origin"}).then(function(r){return r.ok?r.json():[]}).then(function(items){if(!items||!items.length){root.innerHTML=\'<div style="grid-column:1/-1;text-align:center;color:#8A7A6A;padding:30px 0;">No products yet.</div>\';return;} root.innerHTML=""; var ph=root.getAttribute("data-ph")||"'.esc_js($ph_url).'"; items.forEach(function(p){var img=p.images&&p.images[0]?p.images[0].src:""; var price=p.prices&&p.prices.price?(parseInt(p.prices.price,10)/Math.pow(10,p.prices.currency_decimals||2)).toFixed(2):null; var cur=p.prices&&p.prices.currency_symbol?p.prices.currency_symbol:"$"; var card=document.createElement("a");card.className="wpmp-card";card.href=p.permalink||"#";card.style.cssText="background:#fff;border:1px solid '.esc_js($t['palette']['border']).';border-radius:'.esc_js($t['radius']['card']).'px;overflow:hidden;display:flex;flex-direction:column;text-decoration:none;color:inherit;"; var im=document.createElement("img");im.loading="lazy";im.alt=p.name||"";im.src=img||ph;im.style.cssText="width:100%;aspect-ratio:1;object-fit:cover;display:block;"; card.appendChild(im); var body=document.createElement("div");body.className="wpmp-body";body.style.cssText="padding:14px;"; var h=document.createElement("h3");h.textContent=p.name||"";h.style.cssText="margin:0 0 6px;font-family:'.esc_js($t['typography']['heading_font']).';font-size:17px;color:'.esc_js($t['palette']['text']).';"; var pr=document.createElement("span");pr.className="wpmp-price";pr.style.cssText="color:'.esc_js($t['palette']['primary']).';font-weight:600;";pr.textContent=null===price?"":cur+price; body.appendChild(h);body.appendChild(pr);card.appendChild(body); root.appendChild(card);});}).catch(function(){root.innerHTML=\'<div style="grid-column:1/-1;text-align:center;color:#8A7A6A;padding:30px 0;">Could not load products.</div>\';});})();</script>';
+		}
 	}
 }

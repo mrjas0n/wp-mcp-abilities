@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP MCP Abilities
  * Description: Registers content-management abilities (posts, comments, media and WooCommerce variable products) exposed through the MCP Adapter default server.
- * Version:     1.7.6
+ * Version:     1.7.7
  * Requires at least: 6.9
  * Requires PHP: 7.4
  * Requires Plugins: mcp-adapter
@@ -2950,9 +2950,11 @@ add_action( 'elementor/widgets/register', function ( $widgets_manager ) {
 
 add_action( 'wp_enqueue_scripts', function () {
 	wp_register_script( 'ning-product-cards', plugins_url( 'assets/js/ning-product-cards.js', __FILE__ ), array( 'jquery' ), '1.7.6', true );
+	wp_register_script( 'ning-motion-effects', plugins_url( 'assets/js/ning-motion-effects.js', __FILE__ ), array( 'jquery' ), '1.7.7', true );
 } );
 add_action( 'elementor/frontend/after_register_scripts', function () {
 	wp_register_script( 'ning-product-cards', plugins_url( 'assets/js/ning-product-cards.js', __FILE__ ), array( 'jquery' ), '1.7.6', true );
+	wp_register_script( 'ning-motion-effects', plugins_url( 'assets/js/ning-motion-effects.js', __FILE__ ), array( 'jquery' ), '1.7.7', true );
 } );
 
 add_action( 'wp_ajax_ning_pattern_preview', function () {

@@ -8,6 +8,7 @@ abstract class Ning_Custom_Base extends \Elementor\Widget_Base {
 	public function has_widget_inner_wrapper(): bool {
 		return ! \Elementor\Plugin::$instance->experiments->is_feature_active( 'e_optimized_markup' );
 	}
+	public function get_script_depends() { return array( 'ning-motion-effects' ); }
 	protected function tokens() {
 		return function_exists('ning_mcp_design_tokens') ? ning_mcp_design_tokens() : array(
 			'palette'=>array('primary'=>'#A67C52','accent'=>'#D9A679','bg'=>'#FDF6EE','text'=>'#3B3B3B','muted'=>'#8A7A6A','border'=>'#E8DDD0'),
@@ -16,6 +17,27 @@ abstract class Ning_Custom_Base extends \Elementor\Widget_Base {
 			'radius'=>array('card'=>'18','button'=>'999'),
 			'shadow'=>array('card'=>'0 4px 20px rgba(166,124,82,.12)'),
 		);
+	}
+	protected function register_motion_controls() {
+		$this->start_controls_section('section_motion', array('label'=>esc_html__('Motion Effects','wp-mcp-abilities'),'tab'=>\Elementor\Controls_Manager::TAB_ADVANCED));
+		$this->add_control('scrolling_effects', array('label'=>esc_html__('Scrolling Effects','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::SWITCHER,'return_value'=>'yes','default'=>''));
+		$this->add_control('scrolling_speed', array('label'=>esc_html__('Speed','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::SLIDER,'size_units'=>array('px'),'range'=>array('px'=>array('min'=>0.1,'max'=>2,'step'=>0.1)),'default'=>array('size'=>0.5,'unit'=>'px'),'condition'=>array('scrolling_effects'=>'yes')));
+		$this->add_control('mouse_effects', array('label'=>esc_html__('Mouse Effects','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::SWITCHER,'return_value'=>'yes','default'=>''));
+		$this->add_control('mouse_intensity', array('label'=>esc_html__('Intensity','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::SLIDER,'size_units'=>array('px'),'range'=>array('px'=>array('min'=>5,'max'=>50)),'default'=>array('size'=>20,'unit'=>'px'),'condition'=>array('mouse_effects'=>'yes')));
+		$this->add_control('sticky', array('label'=>esc_html__('Sticky','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::SELECT,'default'=>'none','options'=>array('none'=>esc_html__('None','wp-mcp-abilities'),'top'=>esc_html__('Top','wp-mcp-abilities'))));
+		$this->add_control('sticky_offset', array('label'=>esc_html__('Offset','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::NUMBER,'default'=>0,'condition'=>array('sticky'=>'top')));
+		$this->end_controls_section();
+	}
+	protected function motion_wrap($html, $settings) {
+		$attrs = '';
+		if (!empty($settings['scrolling_effects'])) $attrs .= ' data-ning-scroll="yes" data-ning-scroll-speed="'.esc_attr($settings['scrolling_speed']['size'] ?? '0.5').'"';
+		if (!empty($settings['mouse_effects'])) $attrs .= ' data-ning-mouse="yes" data-ning-mouse-intensity="'.esc_attr($settings['mouse_intensity']['size'] ?? '20').'"';
+		if (($settings['sticky'] ?? 'none') === 'top') {
+			$offset = intval($settings['sticky_offset'] ?? 0);
+			$attrs .= ' data-ning-sticky="top" data-ning-sticky-offset="'.esc_attr($offset).'"';
+		}
+		if ($attrs) return '<div class="ning-motion-wrap"'.$attrs.'>'.$html.'</div>';
+		return $html;
 	}
 }
 
@@ -42,6 +64,7 @@ class Ning_Banner_Widget extends Ning_Custom_Base {
 			'condition'=>array('layout'=>array('hero-classic','hero-split')),
 		));
 		$this->end_controls_section();
+		$this->register_motion_controls();
 	}
 	protected function render() {
 		$s = $this->get_settings_for_display();
@@ -97,6 +120,7 @@ class Ning_Features_Widget extends Ning_Custom_Base {
 			'title_field'=>'{{{ title_text }}}',
 		));
 		$this->end_controls_section();
+		$this->register_motion_controls();
 	}
 	protected function render() {
 		$s = $this->get_settings_for_display();
@@ -135,9 +159,15 @@ class Ning_Cta_Banner_Widget extends Ning_Custom_Base {
 		$this->add_control('cta_url', array('label'=>esc_html__('Button Link','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::URL,'default'=>array('url'=>'#')));
 		$this->add_control('background_image', array('label'=>esc_html__('Background Image','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::MEDIA,'default'=>array('url'=>''),'media_types'=>array('image'),'dynamic'=>array('active'=>true)));
 		$this->end_controls_section();
+		$this->register_motion_controls();
 	}
 	protected function render() {
-		$s=$this->get_settings_for_display(); $t=$this->tokens();
+		$s=$this->get_settings_for_display();
+		if (!empty($s['scrolling_effects'])) $this->add_render_attribute('_wrapper', 'data-ning-scroll', 'yes');
+		if (!empty($s['scrolling_effects']) && isset($s['scrolling_speed']['size'])) $this->add_render_attribute('_wrapper', 'data-ning-scroll-speed', $s['scrolling_speed']['size']);
+		if (!empty($s['mouse_effects'])) $this->add_render_attribute('_wrapper', 'data-ning-mouse', 'yes');
+		if (!empty($s['mouse_effects']) && isset($s['mouse_intensity']['size'])) $this->add_render_attribute('_wrapper', 'data-ning-mouse-intensity', $s['mouse_intensity']['size']);
+		if (($s['sticky'] ?? 'none') === 'top') { $this->add_render_attribute('_wrapper', 'data-ning-sticky', 'top'); $this->add_render_attribute('_wrapper', 'data-ning-sticky-offset', $s['sticky_offset'] ?? 0); $this->add_render_attribute('_wrapper', 'style', 'position:sticky;top:'.intval($s['sticky_offset'] ?? 0).'px;z-index:99;'); } $t=$this->tokens();
 		$title=$s['title']??'Join Our Community'; $subtitle=$s['subtitle']??''; $cta_text=$s['cta_text']??'Subscribe'; $cta_url=$s['cta_url']['url']??'#';
 		$bg_url = isset($s['background_image']['url']) ? $s['background_image']['url'] : '';
 		$bg_style = $bg_url ? 'background:url('.esc_url($bg_url).') center/cover;' : 'background:'.esc_attr($t['palette']['primary']).';';
@@ -170,9 +200,15 @@ class Ning_Testimonials_Widget extends Ning_Custom_Base {
 			array('testimonial_name'=>'Mia L.','testimonial_job'=>'Gift Buyer','testimonial_content'=>'The perfect gift. So unique and well made.','rating'=>5),
 		),'title_field'=>'{{{ testimonial_name }}}'));
 		$this->end_controls_section();
+		$this->register_motion_controls();
 	}
 	protected function render() {
-		$s=$this->get_settings_for_display(); $t=$this->tokens();
+		$s=$this->get_settings_for_display();
+		if (!empty($s['scrolling_effects'])) $this->add_render_attribute('_wrapper', 'data-ning-scroll', 'yes');
+		if (!empty($s['scrolling_effects']) && isset($s['scrolling_speed']['size'])) $this->add_render_attribute('_wrapper', 'data-ning-scroll-speed', $s['scrolling_speed']['size']);
+		if (!empty($s['mouse_effects'])) $this->add_render_attribute('_wrapper', 'data-ning-mouse', 'yes');
+		if (!empty($s['mouse_effects']) && isset($s['mouse_intensity']['size'])) $this->add_render_attribute('_wrapper', 'data-ning-mouse-intensity', $s['mouse_intensity']['size']);
+		if (($s['sticky'] ?? 'none') === 'top') { $this->add_render_attribute('_wrapper', 'data-ning-sticky', 'top'); $this->add_render_attribute('_wrapper', 'data-ning-sticky-offset', $s['sticky_offset'] ?? 0); $this->add_render_attribute('_wrapper', 'style', 'position:sticky;top:'.intval($s['sticky_offset'] ?? 0).'px;z-index:99;'); } $t=$this->tokens();
 		$title=$s['title']??'Kind Words'; $items=$s['testimonials']??array();
 		echo '<div style="max-width:1200px;margin:0 auto;padding:'.esc_attr($t['spacing']['section']).'px 24px;text-align:center;">';
 		echo '<h2 style="font-family:'.esc_attr($t['typography']['heading_font']).';font-size:32px;color:'.esc_attr($t['palette']['text']).';margin:0 0 32px;">'.esc_html($title).'</h2>';
@@ -209,9 +245,15 @@ class Ning_Stats_Widget extends Ning_Custom_Base {
 			array('number'=>15,'suffix'=>'+','label'=>'Years'),
 		),'title_field'=>'{{{ label }}}: {{{ number }}}{{{ suffix }}}'));
 		$this->end_controls_section();
+		$this->register_motion_controls();
 	}
 	protected function render() {
-		$s=$this->get_settings_for_display(); $t=$this->tokens();
+		$s=$this->get_settings_for_display();
+		if (!empty($s['scrolling_effects'])) $this->add_render_attribute('_wrapper', 'data-ning-scroll', 'yes');
+		if (!empty($s['scrolling_effects']) && isset($s['scrolling_speed']['size'])) $this->add_render_attribute('_wrapper', 'data-ning-scroll-speed', $s['scrolling_speed']['size']);
+		if (!empty($s['mouse_effects'])) $this->add_render_attribute('_wrapper', 'data-ning-mouse', 'yes');
+		if (!empty($s['mouse_effects']) && isset($s['mouse_intensity']['size'])) $this->add_render_attribute('_wrapper', 'data-ning-mouse-intensity', $s['mouse_intensity']['size']);
+		if (($s['sticky'] ?? 'none') === 'top') { $this->add_render_attribute('_wrapper', 'data-ning-sticky', 'top'); $this->add_render_attribute('_wrapper', 'data-ning-sticky-offset', $s['sticky_offset'] ?? 0); $this->add_render_attribute('_wrapper', 'style', 'position:sticky;top:'.intval($s['sticky_offset'] ?? 0).'px;z-index:99;'); } $t=$this->tokens();
 		$items=$s['stats']??array();
 		echo '<div style="max-width:1200px;margin:0 auto;padding:56px 24px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:24px;text-align:center;">';
 		foreach ($items as $it) {
@@ -231,9 +273,15 @@ class Ning_Newsletter_Widget extends Ning_Custom_Base {
 		$this->add_control('title', array('label'=>esc_html__('Title','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::TEXT,'default'=>esc_html__('Stay in the Loop','wp-mcp-abilities'),'label_block'=>true));
 		$this->add_control('subtitle', array('label'=>esc_html__('Subtitle','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::TEXTAREA,'rows'=>2,'default'=>esc_html__('Sign up for our newsletter.','wp-mcp-abilities')));
 		$this->end_controls_section();
+		$this->register_motion_controls();
 	}
 	protected function render() {
-		$s=$this->get_settings_for_display(); $t=$this->tokens();
+		$s=$this->get_settings_for_display();
+		if (!empty($s['scrolling_effects'])) $this->add_render_attribute('_wrapper', 'data-ning-scroll', 'yes');
+		if (!empty($s['scrolling_effects']) && isset($s['scrolling_speed']['size'])) $this->add_render_attribute('_wrapper', 'data-ning-scroll-speed', $s['scrolling_speed']['size']);
+		if (!empty($s['mouse_effects'])) $this->add_render_attribute('_wrapper', 'data-ning-mouse', 'yes');
+		if (!empty($s['mouse_effects']) && isset($s['mouse_intensity']['size'])) $this->add_render_attribute('_wrapper', 'data-ning-mouse-intensity', $s['mouse_intensity']['size']);
+		if (($s['sticky'] ?? 'none') === 'top') { $this->add_render_attribute('_wrapper', 'data-ning-sticky', 'top'); $this->add_render_attribute('_wrapper', 'data-ning-sticky-offset', $s['sticky_offset'] ?? 0); $this->add_render_attribute('_wrapper', 'style', 'position:sticky;top:'.intval($s['sticky_offset'] ?? 0).'px;z-index:99;'); } $t=$this->tokens();
 		$title=$s['title']??'Stay in the Loop'; $subtitle=$s['subtitle']??'Sign up for our newsletter.';
 		echo '<div style="max-width:900px;margin:0 auto;padding:'.esc_attr($t['spacing']['section']).'px 24px;text-align:center;">';
 		echo '<h2 style="font-family:'.esc_attr($t['typography']['heading_font']).';font-size:32px;color:'.esc_attr($t['palette']['text']).';margin:0 0 12px;">'.esc_html($title).'</h2>';
@@ -253,9 +301,15 @@ class Ning_Marquee_Widget extends Ning_Custom_Base {
 		$this->start_controls_section('section_content', array('label'=>esc_html__('Content','wp-mcp-abilities')));
 		$this->add_control('text', array('label'=>esc_html__('Text','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::TEXT,'default'=>esc_html__('Handmade with Love • Natural Materials • Fair Trade','wp-mcp-abilities'),'label_block'=>true));
 		$this->end_controls_section();
+		$this->register_motion_controls();
 	}
 	protected function render() {
-		$s=$this->get_settings_for_display(); $t=$this->tokens();
+		$s=$this->get_settings_for_display();
+		if (!empty($s['scrolling_effects'])) $this->add_render_attribute('_wrapper', 'data-ning-scroll', 'yes');
+		if (!empty($s['scrolling_effects']) && isset($s['scrolling_speed']['size'])) $this->add_render_attribute('_wrapper', 'data-ning-scroll-speed', $s['scrolling_speed']['size']);
+		if (!empty($s['mouse_effects'])) $this->add_render_attribute('_wrapper', 'data-ning-mouse', 'yes');
+		if (!empty($s['mouse_effects']) && isset($s['mouse_intensity']['size'])) $this->add_render_attribute('_wrapper', 'data-ning-mouse-intensity', $s['mouse_intensity']['size']);
+		if (($s['sticky'] ?? 'none') === 'top') { $this->add_render_attribute('_wrapper', 'data-ning-sticky', 'top'); $this->add_render_attribute('_wrapper', 'data-ning-sticky-offset', $s['sticky_offset'] ?? 0); $this->add_render_attribute('_wrapper', 'style', 'position:sticky;top:'.intval($s['sticky_offset'] ?? 0).'px;z-index:99;'); } $t=$this->tokens();
 		$text=$s['text']??'Handmade with Love • Natural Materials • Fair Trade';
 		$line = str_repeat(esc_html($text).' &nbsp;•&nbsp; ',3);
 		echo '<div style="overflow:hidden;white-space:nowrap;background:'.esc_attr($t['palette']['primary']).';color:#fff;padding:14px 0;"><div style="display:inline-block;font-family:'.esc_attr($t['typography']['heading_font']).';font-size:18px;letter-spacing:.05em;animation:wpmp-marquee 18s linear infinite">'.$line.'</div></div><style>@keyframes wpmp-marquee{from{transform:translateX(0)}to{transform:translateX(-33.333%)}}</style>';
@@ -273,9 +327,15 @@ class Ning_Divider_Widget extends Ning_Custom_Base {
 		$this->add_control('gap', array('label'=>esc_html__('Gap','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::SLIDER,'size_units'=>array('px'),'range'=>array('px'=>array('min'=>0,'max'=>60)),'default'=>array('size'=>14,'unit'=>'px')));
 		$this->add_control('max_width', array('label'=>esc_html__('Max Width','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::SLIDER,'size_units'=>array('px','%'),'range'=>array('px'=>array('min'=>100,'max'=>800),'%'=>array('min'=>10,'max'=>100)),'default'=>array('size'=>420,'unit'=>'px')));
 		$this->end_controls_section();
+		$this->register_motion_controls();
 	}
 	protected function render() {
-		$s=$this->get_settings_for_display(); $t=$this->tokens();
+		$s=$this->get_settings_for_display();
+		if (!empty($s['scrolling_effects'])) $this->add_render_attribute('_wrapper', 'data-ning-scroll', 'yes');
+		if (!empty($s['scrolling_effects']) && isset($s['scrolling_speed']['size'])) $this->add_render_attribute('_wrapper', 'data-ning-scroll-speed', $s['scrolling_speed']['size']);
+		if (!empty($s['mouse_effects'])) $this->add_render_attribute('_wrapper', 'data-ning-mouse', 'yes');
+		if (!empty($s['mouse_effects']) && isset($s['mouse_intensity']['size'])) $this->add_render_attribute('_wrapper', 'data-ning-mouse-intensity', $s['mouse_intensity']['size']);
+		if (($s['sticky'] ?? 'none') === 'top') { $this->add_render_attribute('_wrapper', 'data-ning-sticky', 'top'); $this->add_render_attribute('_wrapper', 'data-ning-sticky-offset', $s['sticky_offset'] ?? 0); $this->add_render_attribute('_wrapper', 'style', 'position:sticky;top:'.intval($s['sticky_offset'] ?? 0).'px;z-index:99;'); } $t=$this->tokens();
 		$line_color = $s['line_color'] ?? $t['palette']['border'];
 		$icon_color = $s['icon_color'] ?? $t['palette']['accent'];
 		$gap = isset($s['gap']['size']) ? $s['gap']['size'] . ($s['gap']['unit'] ?? 'px') : '14px';
@@ -292,9 +352,15 @@ class Ning_Gallery_Widget extends Ning_Custom_Base {
 		$this->start_controls_section('section_content', array('label'=>esc_html__('Content','wp-mcp-abilities')));
 		$this->add_control('images', array('label'=>esc_html__('Images','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::GALLERY,'default'=>array()));
 		$this->end_controls_section();
+		$this->register_motion_controls();
 	}
 	protected function render() {
-		$s=$this->get_settings_for_display(); $t=$this->tokens();
+		$s=$this->get_settings_for_display();
+		if (!empty($s['scrolling_effects'])) $this->add_render_attribute('_wrapper', 'data-ning-scroll', 'yes');
+		if (!empty($s['scrolling_effects']) && isset($s['scrolling_speed']['size'])) $this->add_render_attribute('_wrapper', 'data-ning-scroll-speed', $s['scrolling_speed']['size']);
+		if (!empty($s['mouse_effects'])) $this->add_render_attribute('_wrapper', 'data-ning-mouse', 'yes');
+		if (!empty($s['mouse_effects']) && isset($s['mouse_intensity']['size'])) $this->add_render_attribute('_wrapper', 'data-ning-mouse-intensity', $s['mouse_intensity']['size']);
+		if (($s['sticky'] ?? 'none') === 'top') { $this->add_render_attribute('_wrapper', 'data-ning-sticky', 'top'); $this->add_render_attribute('_wrapper', 'data-ning-sticky-offset', $s['sticky_offset'] ?? 0); $this->add_render_attribute('_wrapper', 'style', 'position:sticky;top:'.intval($s['sticky_offset'] ?? 0).'px;z-index:99;'); } $t=$this->tokens();
 		$gallery = $s['images'] ?? array();
 		if (empty($gallery)) {
 			if (function_exists('ning_mcp_pexels_fallback_ids')) {
@@ -318,7 +384,7 @@ class Ning_Product_Cards_Widget extends Ning_Custom_Base {
 	public function get_name() { return 'ning-product-cards'; }
 	public function get_title() { return esc_html__( 'Product Cards', 'wp-mcp-abilities' ); }
 	public function get_icon() { return 'eicon-products'; }
-	public function get_script_depends() { return array( 'ning-product-cards' ); }
+	public function get_script_depends() { return array( 'ning-product-cards', 'ning-motion-effects' ); }
 	protected function register_controls() {
 		$this->start_controls_section('section_content', array('label'=>esc_html__('Content','wp-mcp-abilities')));
 		$this->add_control('source', array(
@@ -347,9 +413,15 @@ class Ning_Product_Cards_Widget extends Ning_Custom_Base {
 		$this->add_control('show_image', array('label'=>esc_html__('Show Image','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::SWITCHER,'label_on'=>esc_html__('Show','wp-mcp-abilities'),'label_off'=>esc_html__('Hide','wp-mcp-abilities'),'return_value'=>'yes','default'=>'yes'));
 		$this->add_control('show_price', array('label'=>esc_html__('Show Price','wp-mcp-abilities'),'type'=>\Elementor\Controls_Manager::SWITCHER,'label_on'=>esc_html__('Show','wp-mcp-abilities'),'label_off'=>esc_html__('Hide','wp-mcp-abilities'),'return_value'=>'yes','default'=>'yes'));
 		$this->end_controls_section();
+		$this->register_motion_controls();
 	}
 	protected function render() {
-		$s=$this->get_settings_for_display(); $t=$this->tokens();
+		$s=$this->get_settings_for_display();
+		if (!empty($s['scrolling_effects'])) $this->add_render_attribute('_wrapper', 'data-ning-scroll', 'yes');
+		if (!empty($s['scrolling_effects']) && isset($s['scrolling_speed']['size'])) $this->add_render_attribute('_wrapper', 'data-ning-scroll-speed', $s['scrolling_speed']['size']);
+		if (!empty($s['mouse_effects'])) $this->add_render_attribute('_wrapper', 'data-ning-mouse', 'yes');
+		if (!empty($s['mouse_effects']) && isset($s['mouse_intensity']['size'])) $this->add_render_attribute('_wrapper', 'data-ning-mouse-intensity', $s['mouse_intensity']['size']);
+		if (($s['sticky'] ?? 'none') === 'top') { $this->add_render_attribute('_wrapper', 'data-ning-sticky', 'top'); $this->add_render_attribute('_wrapper', 'data-ning-sticky-offset', $s['sticky_offset'] ?? 0); $this->add_render_attribute('_wrapper', 'style', 'position:sticky;top:'.intval($s['sticky_offset'] ?? 0).'px;z-index:99;'); } $t=$this->tokens();
 		$source = $s['source'] ?? 'latest';
 		$count = max(1,min(12,intval($s['count'] ?? 4)));
 		$category_ids = isset($s['category_ids']) && is_array($s['category_ids']) ? array_map('intval',$s['category_ids']) : array();
